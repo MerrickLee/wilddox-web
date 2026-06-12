@@ -35,6 +35,14 @@ const Typewriter = ({ text, typing, setTyping }) => {
   return <span>{disp}</span>
 }
 
+export const trackEvent = (eventName, eventParams = {}) => {
+  if (typeof window !== 'undefined' && window.gtag) {
+    window.gtag('event', eventName, eventParams)
+  } else if (typeof window !== 'undefined' && window.dataLayer) {
+    window.dataLayer.push({ event: eventName, ...eventParams })
+  }
+}
+
 export default function App(){
   const canvasRef = useRef(null)
   const engineRef = useRef(null)
@@ -69,6 +77,11 @@ export default function App(){
   
   const prevPState = useRef('NEUTRAL')
   
+  /* ── screen tracking ── */
+  useEffect(() => {
+    trackEvent('screen_view', { screen_name: phase })
+  }, [phase])
+
   /* ── battle hp states ── */
   useEffect(() => {
     if(phase === 'battle' && bat && engineRef.current) {
@@ -130,6 +143,7 @@ export default function App(){
     
     if(!questBanner && q.check({ player, party, coins, xp, level, cages, flags })){
       AUDIO.levelup()
+      trackEvent('quest_complete', { quest_title: q.title })
       setQuestBanner({ type: 'COMPLETE', title: q.title })
       setTimeout(() => {
         const nextIdx = questIdx + 1
@@ -193,6 +207,7 @@ export default function App(){
 
   /* ── title actions ── */
   const newGame = async (name, emoji, jacket)=>{
+    trackEvent('game_start', { name, emoji, jacket, starter: jacket===0x9A3A20?'fox':'wolf' })
     await AUDIO.init(); AUDIO.click()
     setPlayer({ name, emoji })
     engineRef.current.setCharacter({ jacket, name })
@@ -201,13 +216,13 @@ export default function App(){
   }
   const continueGame = async ()=>{
     await AUDIO.init(); AUDIO.click()
-    const save = loadSave()
-    if(save){
-      const jacket = save.player.name === 'Maisey' ? 0x2A6A80 : 0x9A3A20
-      engineRef.current.setCharacter({ jacket, name: save.player.name })
-      setPhase('world')
-      AUDIO.playWorld()
-    }
+    const s = loadSave()
+    if(!s) return
+    trackEvent('game_load', { level: s.level || 1, coins: s.coins })
+    const jacket = s.player.name === 'Maisey' ? 0x2A6A80 : 0x9A3A20
+    engineRef.current.setCharacter({ jacket, name: s.player.name })
+    setPhase('world')
+    AUDIO.playWorld()
   }
 
   /* ── starter pick ── */
@@ -244,6 +259,7 @@ export default function App(){
       enemy.hp = enemy.maxHp
       const lead = party[0]
       engineRef.current.startBattle(lead.id, lead.evolved, enemy.id)
+      trackEvent('battle_start', { enemy_name: enemy.name, enemy_level: enemy.level })
       setBat({ enemy, isHunter, eHp:enemy.maxHp, pHp:lead.hp, eph:'intro',
         blog:[], selCage:'basic', busy:false, res:null, pAtk:1, eDef:1 })
       setPhase('battle')
@@ -267,6 +283,7 @@ export default function App(){
     if(b.busy || mv.pp<=0) return
     const lead = party[0]
     const eng = engineRef.current
+    trackEvent('battle_move', { move_name: mv.name })
     /* decrement PP */
     setParty(p=>{
       const np = dc(p); np[0].moves[mi].pp = Math.max(0, np[0].moves[mi].pp-1); return np
@@ -289,6 +306,7 @@ export default function App(){
           if(nHp<=0){ 
             nb.eph='animating_defeat'
             nb.res={ ok:false, msg:`${party[0].name} fainted! Retreating...` } 
+            trackEvent('battle_loss', { enemy_name: curB.enemy.name })
             eng.onDefeat('player', () => {
               setBat(curr => curr ? { ...curr, eph: 'result' } : null)
             })
@@ -337,6 +355,7 @@ export default function App(){
             if(nE<=0){
               nb.eph='animating_victory'
               nb.res={ ok:true, msg: x.isHunter ? 'Hunter defeated! They fled.' : `${x.enemy.name} is exhausted!` }
+              trackEvent('battle_win', { enemy_name: x.enemy.name })
               eng.onDefeat('enemy')
               AUDIO.bark('victory')
               eng.onVictory('player', () => {
@@ -376,6 +395,7 @@ export default function App(){
     const cage = cages.find(c=>c.id===b.selCage)
     if(!cage || cage.n<=0){ notify('No cages of that type left!'); return }
     setCages(cs=>cs.map(c=>c.id===cage.id?{ ...c, n:c.n-1 }:c))
+    trackEvent('catch_attempt', { cage_type: cage.name, enemy_name: b.enemy.name })
     const cp = calcCatch(b.eHp, b.enemy.maxHp, b.enemy.cr||50, cage.bonus)
     const roll = ri(1,100)
     const caught = roll <= cp
@@ -383,6 +403,7 @@ export default function App(){
     AUDIO.cage()
     engineRef.current.playCageThrow(caught, ()=>{ AUDIO.hit() }, ()=>{
       if(caught){
+        trackEvent('catch_success', { enemy_name: b.enemy.name })
         AUDIO.capture()
         if(party.length < 6){
           const ca = { ...mkAnimal({ ...dc(b.enemy), baseHp:b.enemy.maxHp }),
@@ -397,6 +418,7 @@ export default function App(){
   }
 
   const fleeBattle = ()=>{
+    trackEvent('run_away', { enemy_name: bat.enemy.name })
     AUDIO.click()
     engineRef.current.endBattle()
     setBat(null)
@@ -452,6 +474,7 @@ export default function App(){
     const cost = inj*15
     if(inj===0){ notify('Team at full HP!'); return }
     if(coins < cost){ notify(`Need ${cost}🪙`); return }
+    trackEvent('heal_team', { cost, injured_count: inj })
     AUDIO.heal()
     setCoins(c=>c-cost)
     setParty(p=>{
