@@ -620,8 +620,22 @@ export default function App(){
           <div style={{ fontSize:10, color:'var(--tx2)' }}>Lv.{level} · {xp}/{level*120} XP</div>
         </div>
         <div className="hud" style={{ padding:'5px 11px', fontSize:13, fontWeight:700, color:'var(--gold)' }}>🪙 {coins}</div>
-        <button className="hud" style={{ padding:'5px 10px', fontSize:14 }}
-          onClick={()=>{ const m = AUDIO.toggleMute(); setMuted(m) }}>{muted?'🔇':'🔊'}</button>
+        <div style={{ display:'flex', gap:6 }}>
+          <button className="hud" style={{ padding:'5px 10px', fontSize:14, cursor:'pointer' }} title="Change Track"
+            onClick={()=>{ 
+              AUDIO.click()
+              const tracks = ['/Two_Voices_at_the_Edge.mp3', '/Beyond_the_Pine_Canopy.mp3', '/Maddy_Daddy_Go.mp3', '/The_Clearings_Call.mp3']
+              let cur = AUDIO.bgm.src;
+              let curPath = '';
+              try { curPath = new URL(cur).pathname } catch(e) { curPath = cur }
+              let i = tracks.indexOf(curPath)
+              let next = tracks[(i+1)%tracks.length] || tracks[0]
+              AUDIO.bgm.src = next
+              if(phase === 'world') AUDIO.bgm.play().catch(()=>{})
+            }}>🎵</button>
+          <button className="hud" style={{ padding:'5px 10px', fontSize:14, cursor:'pointer' }} title="Mute/Unmute"
+            onClick={()=>{ const m = AUDIO.toggleMute(); setMuted(m) }}>{muted?'🔇':'🔊'}</button>
+        </div>
       </div>
       {lead && (
         <div className="hud ov" style={{ top:62, left:14, display:'flex', alignItems:'center', gap:8, padding:'6px 10px' }}>

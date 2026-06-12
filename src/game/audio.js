@@ -72,7 +72,7 @@ class AudioManager {
 
   /* Title screen music */
   playTitle(){
-    if(this.muted || this.currentMusic==='title') return
+    if(this.muted || (this.currentMusic==='title' && !this.titleBgm.paused)) return
     this._stopLoops(); this.currentMusic='title'
     if(this.battleBgm) this.battleBgm.pause()
     if(this.hunterBgm) this.hunterBgm.pause()
