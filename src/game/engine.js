@@ -619,7 +619,11 @@ export class Engine {
       this.player.position.y = terrainH(fx, fz)
       this.playerYaw = Math.atan2(ix, iz) - Math.PI/2
       /* walk cycle */
+      const prevPhase = this.walkPhase
       this.walkPhase += dt*9
+      if (Math.floor(this.walkPhase / Math.PI) > Math.floor(prevPhase / Math.PI)) {
+         if(window.AUDIO) window.AUDIO.step()
+      }
       const { legs, arms, upperBody } = this.player.userData
       legs.forEach((l,i)=>{ 
         const cycle = this.walkPhase + i*Math.PI

@@ -35,6 +35,11 @@ class AudioManager {
       this.hitSynth = new Tone.MembraneSynth({ octaves:4, pitchDecay:.08 }).connect(new Tone.Gain(.5).connect(this.master))
       this.noise = new Tone.NoiseSynth({ noise:{type:'white'}, envelope:{attack:.005,decay:.12,sustain:0} }).connect(new Tone.Gain(.25).connect(this.master))
       this.pluck = new Tone.PluckSynth({ dampening:3000 }).connect(new Tone.Gain(.5).connect(this.master))
+      
+      this.footstep = new Tone.NoiseSynth({
+        noise: { type: 'brown' },
+        envelope: { attack: 0.005, decay: 0.08, sustain: 0 }
+      }).connect(new Tone.Gain(0.12).connect(this.master))
 
       /* ── Music voices ── */
       this.padGain = new Tone.Gain(0.16).connect(this.master)
@@ -141,6 +146,12 @@ class AudioManager {
   levelup(){ if(this.ready&&!this.muted){ ['G4','C5','E5','G5'].forEach((n,i)=>setTimeout(()=>this.sfxSynth.triggerAttackRelease(n,'16n'),i*90)) } }
   evolve(){  if(this.ready&&!this.muted){ ['C4','E4','G4','C5','E5','G5','C6'].forEach((n,i)=>setTimeout(()=>this.sfxSynth.triggerAttackRelease(n,'16n'),i*120)) } }
   encounter(){ if(this.ready&&!this.muted){ this.hitSynth.triggerAttackRelease('E2','8n'); setTimeout(()=>this.sfxSynth.triggerAttackRelease('B4','16n'),120) } }
+  
+  step() {
+    if(this.ready && !this.muted && this.currentMusic === 'world') {
+      this.footstep.triggerAttackRelease('32n')
+    }
+  }
 
   bark(type){
     if(!this.ready || this.muted) return
