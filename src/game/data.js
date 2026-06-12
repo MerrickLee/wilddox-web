@@ -119,3 +119,13 @@ export function mkAnimal(base){
     hp: base.baseHp||base.maxHp||40, maxHp: base.baseHp||base.maxHp||40,
     level: base.level||5, bond:10, atk:base.atk||8, def:base.def||6, evolved:false }
 }
+
+export const QUESTS = [
+  { id:'q1', title:"Meet the Wild", desc:"Walk into a tall grass patch and encounter your first animal.", hint:"Follow the gold arrow or look for rustling grass.", targetZone:'any', check:(s)=>s.flags.encounters > 0 },
+  { id:'q2', title:"First Capture", desc:"Catch any wild animal with a cage.", hint:"Lower their HP first to improve catch rates, then use a cage from the battle menu.", targetZone:'any', check:(s)=>s.party.length > 1 },
+  { id:'q3', title:"Growing Stronger", desc:"Win 3 battles.", hint:"Use type advantages or level up your starter.", targetZone:'any', check:(s)=>s.flags.wins && s.flags.wins >= 3 },
+  { id:'q4', title:"Something's Wrong", desc:"Keep exploring and battling to trigger the betrayal.", hint:"Reach 8 total encounters.", targetZone:'any', check:(s)=>s.flags.betrayal },
+  { id:'q5', title:"Hunter Threat", desc:"Defeat a Hunter's Corrupted Deer.", hint:"Keep exploring until you encounter a Hunter.", targetZone:'any', check:(s)=>s.flags.hunterDefeated },
+  { id:'q6', title:"True Bond", desc:"Raise your starter's bond to 60% or more.", hint:"Win battles without letting them faint.", targetZone:null, check:(s)=>s.party[0] && s.party[0].bond >= 60 },
+  { id:'q7', title:"Evolution", desc:"Evolve your starter.", hint:"Check the Team menu when their level and bond are high enough.", targetZone:null, check:(s)=>s.party[0] && s.party[0].evolved }
+]

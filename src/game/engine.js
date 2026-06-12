@@ -157,20 +157,70 @@ export class Engine {
     this.deerTimer = 0
 
     /* player */
-    this.player = explorer({})
+    this.player = explorer({ playerName: 'JOHN' })
     this.player.position.set(0, terrainH(0,40), 40)
     s.add(this.player)
     this.playerYaw = Math.PI
     this.walkPhase = 0
     this.grassMeter = 0
+
+    /* ── Waypoint Beacon ── */
+    this.waypointGroup = new THREE.Group()
+    this.waypointGroup.visible = false
+    this.wpMesh = new THREE.Mesh(new THREE.OctahedronGeometry(.6), new THREE.MeshStandardMaterial({ color:0xF5C430, emissive:0xF5C430, emissiveIntensity:0.8, roughness:0.2 }))
+    this.waypointGroup.add(this.wpMesh)
+    this.wpLight = new THREE.PointLight(0xF5C430, 1.2, 10)
+    this.waypointGroup.add(this.wpLight)
+    
+    const pillarMat = new THREE.MeshBasicMaterial({ color:0xF5C430, transparent:true, opacity:0.12, blending:THREE.AdditiveBlending, depthWrite:false })
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(.8, .8, 10, 8), pillarMat)
+    pillar.position.y = -5
+    this.waypointGroup.add(pillar)
+    s.add(this.waypointGroup)
+
+    this.wpTargetZone = null
+    this.wpUpdateTimer = 0
   }
 
-  setCharacter({ jacket }={}){
+  /* ── Waypoint Methods ── */
+  setWaypoint(zoneId) {
+    this.wpTargetZone = zoneId
+    this.wpUpdateTimer = 0
+  }
+  clearWaypoint() {
+    this.wpTargetZone = null
+  }
+  getWaypointScreenInfo() {
+    if(!this.waypointGroup || !this.waypointGroup.visible || this.mode !== 'world') return { visible:false }
+    this.camera.updateMatrixWorld()
+    const pos = this.waypointGroup.position.clone()
+    pos.project(this.camera)
+    
+    const inFront = pos.z < 1
+    const w = window.innerWidth, h = window.innerHeight
+    const x = (pos.x * .5 + .5) * w
+    const y = (-(pos.y) * .5 + .5) * h
+    
+    const pad = 40
+    const isOffScreen = !inFront || x < pad || x > w-pad || y < pad || y > h-pad
+    
+    if(!isOffScreen) return { visible:false }
+    
+    const cx = w/2, cy = h/2
+    let dx = x - cx, dy = y - cy
+    if(!inFront){ dx = -dx; dy = -dy }
+    const angle = Math.atan2(dy, dx)
+    const dist = Math.round(this.player.position.distanceTo(this.waypointGroup.position))
+    
+    return { visible:true, angle, dist }
+  }
+
+  setCharacter({ jacket, name }={}){
     /* swap player colors for John/Maisey */
     if(!jacket) return
     this.worldScene.remove(this.player)
     const pos = this.player.position.clone()
-    this.player = explorer({ jacket })
+    this.player = explorer({ jacket, playerName: name })
     this.player.position.copy(pos)
     this.worldScene.add(this.player)
   }
@@ -226,7 +276,12 @@ export class Engine {
     this.battleE = null   // enemy model
     this.camOrbit = 0
     this.camOverride = null   // when a tween controls the camera
+    this.camCriticalZoom = 0
     this.shake = 0
+    
+    this.hpStateP = 'NEUTRAL'
+    this.hpStateE = 'NEUTRAL'
+    this.battleParticles = []
 
     /* cage prop */
     this.cageMesh = new THREE.Group()
@@ -399,12 +454,106 @@ export class Engine {
     })
   }
 
-  playFaint(who, onDone){
-    const A = who==='enemy' ? this.battleE : this.battleP
-    this._tween(.8, k=>{
-      A.rotation.z = (who==='enemy'?-1:1) * this._ease(k) * Math.PI/2
-      A.position.y = -this._ease(k)*.3
-    }, ()=>{ onDone && onDone() })
+  onLandedHit(who) {
+    const A = who === 'enemy' ? this.battleE : this.battleP
+    if(!A) return
+    const isWinning = (who === 'enemy' ? this.hpStateE : this.hpStateP) === 'WINNING'
+    this._tween(.35, k => {
+      const e = Math.sin(k * Math.PI)
+      A.position.y = e * 0.5
+      if(A.userData.head) A.userData.head.rotation.x = e * 0.4
+    }, () => {
+      A.position.y = 0
+      if(isWinning) {
+        this._tween(.5, k => {
+          const e = Math.sin(k * Math.PI)
+          A.rotation.x = -e * (20 * Math.PI/180) // rear up
+        })
+      }
+    })
+  }
+
+  onTookBigHit(who, dmgPct) {
+    const A = who === 'enemy' ? this.battleE : this.battleP
+    if(!A) return
+    const dir = who === 'enemy' ? 1 : -1
+    const sx = A.position.x
+    if(dmgPct > 25){
+      this._tween(.4, k => {
+        const e = Math.sin(k * Math.PI)
+        A.position.x = sx + dir * e * 0.8
+        A.rotation.z = -dir * e * (15 * Math.PI / 180)
+      }, () => {
+        A.position.x = sx
+        A.rotation.z = 0
+      })
+    }
+  }
+
+  onVictory(winner, onDone) {
+    const A = winner === 'enemy' ? this.battleE : this.battleP
+    if(!A) { onDone && onDone(); return }
+    // Celebration
+    if(A.userData.type === 'wolf'){
+      this._tween(.6, k => {
+        if(A.userData.head) A.userData.head.rotation.x = this._ease(k) * (-45 * Math.PI / 180)
+      })
+    } else if(A.userData.wings){
+      this._tween(1.2, k => {
+        A.position.y = Math.sin(k * Math.PI * 2) * 0.8
+        A.userData.wings.forEach(w => w.rotation.z = 0.8 + Math.sin(k * Math.PI * 6) * 0.4)
+        if(A.userData.tail) A.userData.tail.rotation.x = 0.5 * Math.sin(k * Math.PI)
+      })
+    } else {
+      this._tween(1.2, k => {
+        A.position.y = Math.max(0, Math.sin(k * Math.PI * 4) * 0.6)
+        A.rotation.y = (winner === 'enemy' ? Math.PI : 0) + k * Math.PI * 2
+      }, () => {
+        A.rotation.y = winner === 'enemy' ? Math.PI : 0
+      })
+    }
+    
+    // Camera hero arc over 2s
+    this.camOverride = true
+    const cx = this.camera.position.x, cy = this.camera.position.y, cz = this.camera.position.z
+    const targetX = A.position.x
+    this._tween(2.0, k => {
+      const a = k * Math.PI
+      this.camera.position.x = targetX + Math.sin(a) * (cx - targetX) - Math.cos(a) * 6 * (winner === 'enemy' ? -1 : 1)
+      this.camera.position.z = Math.cos(a) * cz + Math.sin(a) * 6
+      this.camera.lookAt(A.position)
+    }, () => {
+      this.camOverride = null
+      onDone && onDone()
+    })
+  }
+
+  onDefeat(who, onDone) {
+    const A = who === 'enemy' ? this.battleE : this.battleP
+    if(!A) { onDone && onDone(); return }
+    this._tween(1.0, k => {
+      A.rotation.x = this._ease(k) * 1.2
+      A.position.y = -this._ease(k) * 0.2
+      if(A.userData.head) A.userData.head.rotation.x = this._ease(k) * 0.5
+    }, () => {
+      onDone && onDone()
+    })
+  }
+
+  setBattleHpState(playerPct, enemyPct) {
+    const getS = (p) => p < 25 ? 'CRITICAL' : p <= 50 ? 'HURT' : 'NEUTRAL'
+    let np = getS(playerPct), ne = getS(enemyPct)
+    if(playerPct > 60 && enemyPct < 40) np = 'WINNING'
+    if(enemyPct > 60 && playerPct < 40) ne = 'WINNING'
+    
+    if(np === 'CRITICAL' || ne === 'CRITICAL'){
+      this.camCriticalZoom = 1
+    } else {
+      this.camCriticalZoom = 0
+    }
+    
+    this.hpStateP = np
+    this.hpStateE = ne
   }
 
   _ease(k){ return k<.5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2 }
@@ -468,12 +617,27 @@ export class Engine {
       this.player.position.x = fx
       this.player.position.z = fz
       this.player.position.y = terrainH(fx, fz)
-      this.playerYaw = Math.atan2(ix, iz)
+      this.playerYaw = Math.atan2(ix, iz) - Math.PI/2
       /* walk cycle */
       this.walkPhase += dt*9
-      const { legs, arms } = this.player.userData
-      legs.forEach((l,i)=>{ l.rotation.x = Math.sin(this.walkPhase + i*Math.PI)*.55 })
-      arms.forEach((a,i)=>{ a.rotation.x = Math.sin(this.walkPhase + (1-i)*Math.PI)*.4 })
+      const { legs, arms, upperBody } = this.player.userData
+      legs.forEach((l,i)=>{ 
+        const cycle = this.walkPhase + i*Math.PI
+        l.upper.rotation.z = Math.sin(cycle)*.6
+        l.lower.rotation.z = -Math.max(0, Math.sin(cycle)) * 1.2
+      })
+      arms.forEach((a,i)=>{ 
+        const cycle = this.walkPhase + (1-i)*Math.PI
+        a.upper.rotation.z = Math.sin(cycle)*.5
+        a.lower.rotation.z = 0.15 + Math.max(0, Math.sin(cycle)) * 0.5
+      })
+      
+      const bounce = Math.abs(Math.sin(this.walkPhase)) * 0.08
+      const sideSway = Math.sin(this.walkPhase) * 0.06
+      if(upperBody) {
+        upperBody.position.y = bounce
+        upperBody.rotation.x = sideSway
+      }
 
       /* encounter check inside grass zones */
       if(this.encounterCooldown > 0) this.encounterCooldown -= dt
@@ -490,9 +654,19 @@ export class Engine {
         }
       }
     } else {
-      const { legs, arms } = this.player.userData
-      legs.forEach(l=>{ l.rotation.x *= .85 })
-      arms.forEach(a=>{ a.rotation.x *= .85 })
+      const { legs, arms, upperBody } = this.player.userData
+      legs.forEach(l=>{ 
+        l.upper.rotation.z *= .85
+        l.lower.rotation.z *= .85
+      })
+      arms.forEach(a=>{ 
+        a.upper.rotation.z *= .85
+        a.lower.rotation.z += (0.15 - a.lower.rotation.z) * .15
+      })
+      if(upperBody) {
+        upperBody.position.y *= .8
+        upperBody.rotation.x *= .8
+      }
     }
     /* smooth facing */
     let dy = this.playerYaw - this.player.rotation.y
@@ -532,22 +706,97 @@ export class Engine {
     this.ambDeer.position.y = terrainH(this.ambDeer.position.x, this.ambDeer.position.z)
     if(this.ambDeer.userData.head) this.ambDeer.userData.head.rotation.y = Math.sin(t*.7)*.3
 
+    /* waypoint animation & target resolution */
+    if(this.wpTargetZone !== null){
+      if(!this.waypointGroup.visible) this.waypointGroup.visible = true
+      
+      let targetZ = null
+      if(this.wpTargetZone === 'any' && this.grassZones){
+        this.wpUpdateTimer -= dt
+        if(this.wpUpdateTimer <= 0 || !this.currentWpZ){
+          this.wpUpdateTimer = 2
+          let minDist = Infinity
+          for(const z of this.grassZones){
+            const d = Math.hypot(this.player.position.x - z.x, this.player.position.z - z.z)
+            if(d < minDist) { minDist = d; targetZ = z }
+          }
+          this.currentWpZ = targetZ
+        } else {
+          targetZ = this.currentWpZ
+        }
+      } else if (this.grassZones) {
+        targetZ = this.grassZones.find(z => z.id === this.wpTargetZone)
+      }
+
+      if(targetZ){
+        this.waypointGroup.position.set(targetZ.x, terrainH(targetZ.x, targetZ.z) + 4, targetZ.z)
+        this.wpMesh.position.y = Math.sin(t*3)*.4
+        this.wpMesh.rotation.y += dt * 1.5
+      }
+    } else {
+      if(this.waypointGroup.visible) this.waypointGroup.visible = false
+    }
+
     this.renderer.render(this.worldScene, this.camera)
   }
 
   _tickBattle(dt, t){
     /* idle animations */
-    if(this.battleP){
-      this.battleP.scale.y = this.battleP.scale.x * (1 + Math.sin(t*2.2)*.012)
-      if(this.battleP.userData.tail) this.battleP.userData.tail.rotation.z = Math.PI/2.4 + Math.sin(t*3)*.14
-      if(this.battleP.userData.head) this.battleP.userData.head.position.y += Math.sin(t*2.2)*.0005
-      if(this.battleP.userData.wings) this.battleP.userData.wings.forEach((w,i)=>{ w.rotation.z = .4+Math.sin(t*3+i)*.15 })
+    const applyIdle = (A, state) => {
+      if(!A) return
+      let headPitch = 0, tilt = 0, tailZ = Math.PI/2.4, amp = 1, speed = 1, droop = 1
+      if(state === 'WINNING'){
+        tilt = -8 * Math.PI/180; headPitch = 15 * Math.PI/180; speed = 2; amp = 1.5
+      } else if(state === 'HURT'){
+        headPitch = -20 * Math.PI/180; speed = 1.4; droop = 0.6
+      } else if(state === 'CRITICAL'){
+        tilt = 12 * Math.PI/180; headPitch = -35 * Math.PI/180; droop = 0; speed = 0.5
+        if(Math.random() < 0.05) A.position.y = -0.1 // stumble dip
+        A.rotation.z = (Math.random()-.5)*.08 // tremble
+      } else {
+        A.rotation.z = 0 // reset tremble
+      }
+      
+      // smooth lerp
+      A.rotation.x += (tilt - A.rotation.x) * dt * 2
+      if(A.userData.head) A.userData.head.rotation.x += (headPitch - A.userData.head.rotation.x) * dt * 2
+      if(A.userData.tail) A.userData.tail.rotation.z += (tailZ*droop + Math.sin(t*3*speed)*.14*amp - A.userData.tail.rotation.z) * dt * 2
+      
+      A.position.y += (0 - A.position.y) * dt * 5 // recover from stumble
+      A.scale.y = A.scale.x * (1 + Math.sin(t*2.2*speed)*.012*amp)
+      if(A.userData.wings) A.userData.wings.forEach((w,i)=>{ w.rotation.z = .4+Math.sin(t*3+i*speed)*.15*amp })
+      
+      // particles
+      if(Math.random() < dt*1.25 && this.battleParticles.length < 12) {
+        if(state === 'CRITICAL'){
+          const p = new THREE.Mesh(new THREE.SphereGeometry(.05,4,4), new THREE.MeshBasicMaterial({color:0x999999, transparent:true}))
+          p.position.set(A.position.x+(Math.random()-.5)*.5, 1.8, A.position.z+(Math.random()-.5)*.5)
+          p.userData = { life: 0.6, type: 'sweat', dy: -1 }
+          this.battleScene.add(p); this.battleParticles.push(p)
+        } else if(state === 'WINNING' && Math.random() < 0.5){
+          const p = new THREE.Mesh(new THREE.SphereGeometry(.04,4,4), new THREE.MeshBasicMaterial({color:0xFFFFFF}))
+          p.position.set(A.position.x+(Math.random()-.5)*1.2, 1.5+(Math.random()-.5)*.5, A.position.z+(Math.random()-.5)*1.2)
+          p.userData = { life: 0.4, type: 'sparkle', dy: 0.5 }
+          this.battleScene.add(p); this.battleParticles.push(p)
+        }
+      }
     }
-    if(this.battleE && this.battleE.visible){
-      this.battleE.scale.y = this.battleE.scale.x * (1 + Math.sin(t*2.5+1)*.012)
-      if(this.battleE.userData.tail) this.battleE.userData.tail.rotation.z = Math.PI/2.4 + Math.sin(t*2.6+2)*.12
-      if(this.battleE.userData.wings) this.battleE.userData.wings.forEach((w,i)=>{ w.rotation.z = .4+Math.sin(t*3.4+i)*.15 })
+    
+    applyIdle(this.battleP, this.hpStateP)
+    if(this.battleE && this.battleE.visible) applyIdle(this.battleE, this.hpStateE)
+
+    /* battle particles */
+    for(let i=this.battleParticles.length-1; i>=0; i--){
+      const p = this.battleParticles[i]
+      p.userData.life -= dt
+      if(p.userData.life <= 0){
+        this.battleScene.remove(p); this.battleParticles.splice(i,1)
+      } else {
+        p.position.y += p.userData.dy * dt
+        if(p.material.transparent) p.material.opacity = p.userData.life / 0.6
+      }
     }
+
     /* dust motes */
     this.motes.forEach((m,i)=>{
       m.position.y += dt*.25
@@ -558,8 +807,11 @@ export class Engine {
     if(!this.camOverride){
       this.camOrbit += dt*.12
       const cx = Math.sin(this.camOrbit)*1.6
-      this.camera.position.lerp(new THREE.Vector3(cx, 3.0, 10.2), Math.min(1, dt*2))
-      this.camera.lookAt(0, 1.1, 0)
+      
+      const zoom = this.camCriticalZoom
+      const targetCam = new THREE.Vector3(cx, 3.0 - zoom*0.4, 10.2 - zoom*1.5)
+      this.camera.position.lerp(targetCam, Math.min(1, dt*2))
+      this.camera.lookAt(0, 1.1 - zoom*0.2, 0)
     }
     /* impact shake */
     if(this.shake > 0){

@@ -98,31 +98,66 @@ export function cloud(){
 }
 
 /* ── EXPLORER (player character) ── */
-export function explorer({ jacket=0x9A3A20, pants=0x3A4858, skin=0xC89060, pack=0x6A5230, hair=0x2A1A0E }={}){
+export function explorer({ jacket=0x9A3A20, pants=0x3A4858, skin=0xC89060, pack=0x6A5230, hair=0x2A1A0E, playerName='JOHN' }={}){
   const g = new THREE.Group()
+  
+  const createLimb = (len1, len2, r1, r2, r3, c1, c2) => {
+    const root = new THREE.Group()
+    const upGeo = new THREE.CylinderGeometry(r1, r2, len1, 5); upGeo.translate(0, -len1/2, 0)
+    const upper = new THREE.Mesh(upGeo, mat(c1, .95)); upper.castShadow = true
+    const dnGeo = new THREE.CylinderGeometry(r2, r3, len2, 5); dnGeo.translate(0, -len2/2, 0)
+    const lower = new THREE.Mesh(dnGeo, mat(c2, .95)); lower.castShadow = true
+    lower.position.y = -len1
+    upper.add(lower); root.add(upper)
+    return { root, upper, lower }
+  }
+
   const legs = []
   ;[-1,1].forEach(s=>{
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(.13,.11,.85,5), mat(pants,.95))
-    leg.position.set(0,.43,.14*s); leg.castShadow = true
-    leg.userData.side = s
-    g.add(leg); legs.push(leg)
+    const limb = createLimb(0.45, 0.4, 0.13, 0.12, 0.11, pants, pants)
+    limb.root.position.set(0, 0.85, 0.14*s)
+    limb.root.userData.side = s
+    g.add(limb.root); legs.push(limb)
   })
+  const upperBody = new THREE.Group()
   const torso = new THREE.Mesh(new THREE.CylinderGeometry(.3,.26,.9,6), mat(jacket,.9))
-  torso.position.y = 1.3; torso.castShadow = true; g.add(torso)
+  torso.position.y = 1.3; torso.castShadow = true; upperBody.add(torso)
   const head = new THREE.Mesh(new THREE.SphereGeometry(.24,6,5), mat(skin,.85))
-  head.position.y = 1.98; head.castShadow = true; g.add(head)
+  head.position.y = 1.98; head.castShadow = true; upperBody.add(head)
   const hairM = new THREE.Mesh(new THREE.SphereGeometry(.25,6,4,0,Math.PI*2,0,Math.PI/2), mat(hair,.95))
-  hairM.position.y = 2.03; g.add(hairM)
+  hairM.position.y = 2.03; upperBody.add(hairM)
   const arms = []
   ;[-1,1].forEach(s=>{
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(.08,.07,.7,5), mat(jacket,.9))
-    arm.position.set(0,1.34,.36*s); arm.rotation.x = .12*s; arm.castShadow = true
-    arm.userData.side = s
-    g.add(arm); arms.push(arm)
+    const limb = createLimb(0.35, 0.35, 0.08, 0.075, 0.07, jacket, skin)
+    limb.root.position.set(0, 1.69, 0.36*s)
+    limb.root.rotation.x = 0.12*s
+    limb.root.userData.side = s
+    upperBody.add(limb.root); arms.push(limb)
   })
   const bp = new THREE.Mesh(new THREE.BoxGeometry(.22,.5,.4), mat(pack,.95))
-  bp.position.set(-.3,1.38,0); bp.castShadow = true; g.add(bp)
-  g.userData = { legs, arms }
+  bp.position.set(-.3,1.38,0); bp.castShadow = true; upperBody.add(bp)
+  
+  if (playerName) {
+    const canvas = document.createElement('canvas')
+    canvas.width = 256; canvas.height = 64
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'
+    ctx.fillRect(0,0,256,64)
+    ctx.font = 'bold 36px monospace'
+    ctx.fillStyle = '#F5C430'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(playerName.toUpperCase(), 128, 36)
+    const tex = new THREE.CanvasTexture(canvas)
+    const nameMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true })
+    const namePlane = new THREE.Mesh(new THREE.PlaneGeometry(.3, .075), nameMat)
+    namePlane.position.set(-.411, 1.48, 0)
+    namePlane.rotation.y = -Math.PI/2
+    upperBody.add(namePlane)
+  }
+  
+  g.add(upperBody)
+  g.userData = { legs, arms, upperBody }
   return g
 }
 

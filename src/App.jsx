@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Engine } from './game/engine.js'
 import { AUDIO } from './game/audio.js'
-import { ANIMALS, WILD, HUNTER_ANIMAL, CAGES, SCIENTISTS, REGIONS, TIPS, STORY,
+import { ANIMALS, WILD, HUNTER_ANIMAL, CAGES, SCIENTISTS, REGIONS, TIPS, STORY, QUESTS,
          dc, ri, clamp, pct, calcCatch, mkAnimal } from './game/data.js'
 
 const SAVE_KEY = 'wilddox_save_v1'
@@ -11,6 +11,28 @@ const Hearts = ({ bond }) => {
   const full = Math.round(bond/20)
   return <div className="hearts">{[...Array(5)].map((_,i)=>
     <span key={i} className={'heart '+(i<full?'full':'empty')}>{i<full?'♥':'♡'}</span>)}</div>
+}
+
+const Typewriter = ({ text, typing, setTyping }) => {
+  const [disp, setDisp] = useState('')
+  useEffect(() => {
+    if(!typing) {
+      setDisp(text)
+      return
+    }
+    setDisp('')
+    let i = 0
+    const t = setInterval(() => {
+      setDisp(text.slice(0, i+1))
+      i++
+      if(i >= text.length) {
+        clearInterval(t)
+        setTyping(false)
+      }
+    }, 25)
+    return () => clearInterval(t)
+  }, [text, typing, setTyping])
+  return <span>{disp}</span>
 }
 
 export default function App(){
@@ -31,6 +53,12 @@ export default function App(){
   const [notif, setNotif] = useState('')
   const [muted, setMuted] = useState(false)
   const [hasSave, setHasSave] = useState(false)
+  
+  const [questIdx, setQuestIdx] = useState(0)
+  const [questExpanded, setQuestExpanded] = useState(false)
+  const [questBanner, setQuestBanner] = useState(null)
+  const [wpScreen, setWpScreen] = useState({ visible: false })
+  const [startOverlay, setStartOverlay] = useState(true)
 
   /* ── cutscene ── */
   const [cs, setCs] = useState(null)     // { key, line, cb }
@@ -38,6 +66,22 @@ export default function App(){
   const [bat, setBat] = useState(null)   // { enemy, isHunter, eHp, pHp, eph, blog, selCage, busy, res, pAtk, eDef }
   /* ── evolution ── */
   const [evo, setEvo] = useState(null)
+  
+  const prevPState = useRef('NEUTRAL')
+  
+  /* ── battle hp states ── */
+  useEffect(() => {
+    if(phase === 'battle' && bat && engineRef.current) {
+      const pPct = Math.round(bat.pHp / party[0].maxHp * 100)
+      const ePct = Math.round(bat.eHp / bat.enemy.maxHp * 100)
+      engineRef.current.setBattleHpState(pPct, ePct)
+      
+      const np = pPct < 25 ? 'CRITICAL' : pPct <= 50 ? 'HURT' : (pPct > 60 && ePct < 40) ? 'WINNING' : 'NEUTRAL'
+      if(np === 'WINNING' && prevPState.current !== 'WINNING') AUDIO.bark('confident')
+      if(np === 'CRITICAL' && prevPState.current !== 'CRITICAL') AUDIO.bark('critical')
+      prevPState.current = np
+    }
+  }, [phase, bat?.pHp, bat?.eHp, party])
 
   const notify = useCallback((msg, ms=2600)=>{
     setNotif(msg); setTimeout(()=>setNotif(''), ms)
@@ -61,9 +105,9 @@ export default function App(){
   useEffect(()=>{
     if(phase==='title' || phase==='starter') return
     try{
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ player, party, coins, xp, level, cages, flags }))
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ player, party, coins, xp, level, cages, flags, questIdx }))
     }catch(e){}
-  },[player, party, coins, xp, level, cages, flags, phase])
+  },[player, party, coins, xp, level, cages, flags, phase, questIdx])
 
   const loadSave = ()=>{
     try{
@@ -72,9 +116,46 @@ export default function App(){
       const s = JSON.parse(raw)
       setPlayer(s.player); setParty(s.party); setCoins(s.coins); setXp(s.xp)
       setLevel(s.level); setCages(s.cages); setFlags(s.flags)
-      return true
+      if(s.questIdx !== undefined) setQuestIdx(s.questIdx)
+      return s
     }catch(e){ return false }
   }
+
+  /* ── quest tracking ── */
+  useEffect(() => {
+    if(phase === 'title' || phase === 'starter' || !QUESTS) return
+    const q = QUESTS[questIdx]
+    if(!q) return
+    if(engineRef.current) engineRef.current.setWaypoint(q.targetZone)
+    
+    if(!questBanner && q.check({ player, party, coins, xp, level, cages, flags })){
+      AUDIO.levelup()
+      setQuestBanner({ type: 'COMPLETE', title: q.title })
+      setTimeout(() => {
+        const nextIdx = questIdx + 1
+        setQuestIdx(nextIdx)
+        const nextQ = QUESTS[nextIdx]
+        if(nextQ){
+          setQuestBanner({ type: 'NEW', title: nextQ.title })
+          setTimeout(() => setQuestBanner(null), 2500)
+        } else {
+          setQuestBanner(null)
+        }
+      }, 2500)
+    }
+  }, [questIdx, player, party, coins, xp, level, cages, flags, phase, questBanner])
+
+  /* ── screen info polling ── */
+  useEffect(() => {
+    if(phase !== 'world') return
+    const t = setInterval(() => {
+      if(engineRef.current){
+        const info = engineRef.current.getWaypointScreenInfo()
+        setWpScreen(info)
+      }
+    }, 100)
+    return () => clearInterval(t)
+  }, [phase])
 
   /* engine pause while menus open */
   useEffect(()=>{
@@ -84,38 +165,46 @@ export default function App(){
 
   /* music per phase */
   useEffect(()=>{
+    if(phase==='title') AUDIO.playTitle()
     if(!AUDIO.ready) return
-    if(phase==='battle') AUDIO.playBattle()
+    if(phase==='battle') AUDIO.playBattle(bat?.isHunter)
     else if(phase==='world') AUDIO.playWorld()
   },[phase])
 
   /* ── cutscene helpers ── */
   const startCS = useCallback((key, cb)=>{
-    setCs({ key, line:0, cb })
+    setCs({ key, line:0, cb, typing:true })
   },[])
   const advanceCS = ()=>{
     AUDIO.click()
     setCs(c=>{
       if(!c) return null
+      if(c.typing) return { ...c, typing:false }
       const lines = STORY[c.key].lines
-      if(c.line < lines.length-1) return { ...c, line:c.line+1 }
+      if(c.line < lines.length-1) return { ...c, line:c.line+1, typing:true }
       const cb = c.cb
       setTimeout(()=>cb && cb(), 0)
       return null
     })
   }
+  const handleSetCsTyping = useCallback((val)=>{
+    setCs(c=>c?{...c,typing:val}:null)
+  }, [])
 
   /* ── title actions ── */
   const newGame = async (name, emoji, jacket)=>{
     await AUDIO.init(); AUDIO.click()
     setPlayer({ name, emoji })
-    engineRef.current.setCharacter({ jacket })
+    engineRef.current.setCharacter({ jacket, name })
     setPhase('starter')
     startCS('c1')
   }
   const continueGame = async ()=>{
     await AUDIO.init(); AUDIO.click()
-    if(loadSave()){
+    const save = loadSave()
+    if(save){
+      const jacket = save.player.name === 'Maisey' ? 0x2A6A80 : 0x9A3A20
+      engineRef.current.setCharacter({ jacket, name: save.player.name })
       setPhase('world')
       AUDIO.playWorld()
     }
@@ -158,7 +247,7 @@ export default function App(){
       setBat({ enemy, isHunter, eHp:enemy.maxHp, pHp:lead.hp, eph:'intro',
         blog:[], selCage:'basic', busy:false, res:null, pAtk:1, eDef:1 })
       setPhase('battle')
-      AUDIO.playBattle()
+      AUDIO.playBattle(isHunter)
     }
     if(isHunter && !flags.firstHunter){
       setFlags(f=>({ ...f, firstHunter:true, encounters:nEnc }))
@@ -189,7 +278,7 @@ export default function App(){
         return cur
       })
       const curB = batRef.current
-      if(!curB || curB.eph==='result'){ setBat(x=>x?{...x,busy:false}:x); return }
+      if(!curB || curB.eph==='result' || curB.eHp <= 0 || curB.pHp <= 0){ setBat(x=>x?{...x,busy:false}:x); return }
       const em = curB.enemy.moves[ri(0, curB.enemy.moves.length-1)]
       eng.playEnemyAttack(()=>{
         AUDIO.hit()
@@ -197,7 +286,17 @@ export default function App(){
         setBat(x=>{
           const nHp = Math.max(0, x.pHp - ed)
           const nb = { ...x, pHp:nHp, blog:[...x.blog.slice(-3), `${curB.enemy.name}: ${em.name} — ${ed} dmg`] }
-          if(nHp<=0){ nb.eph='result'; nb.res={ ok:false, msg:`${party[0].name} fainted! Retreating...` } }
+          if(nHp<=0){ 
+            nb.eph='animating_defeat'
+            nb.res={ ok:false, msg:`${party[0].name} fainted! Retreating...` } 
+            eng.onDefeat('player', () => {
+              setBat(curr => curr ? { ...curr, eph: 'result' } : null)
+            })
+          } else {
+            eng.onLandedHit('enemy')
+            eng.onTookBigHit('player', ed / party[0].maxHp * 100)
+            AUDIO.bark('hurt')
+          }
           return nb
         })
       }, ()=>{
@@ -236,9 +335,16 @@ export default function App(){
             const nE = Math.max(0, x.eHp - d)
             const nb = { ...x, eHp:nE, blog:[...x.blog.slice(-3), `${lead.name}: ${mv.name} — ${d} dmg`] }
             if(nE<=0){
-              nb.eph='result'
+              nb.eph='animating_victory'
               nb.res={ ok:true, msg: x.isHunter ? 'Hunter defeated! They fled.' : `${x.enemy.name} is exhausted!` }
-              eng.playFaint('enemy')
+              eng.onDefeat('enemy')
+              AUDIO.bark('victory')
+              eng.onVictory('player', () => {
+                setBat(curr => curr ? { ...curr, eph: 'result' } : null)
+              })
+            } else {
+              eng.onLandedHit('player')
+              eng.onTookBigHit('enemy', d / x.enemy.maxHp * 100)
             }
             return nb
           })
@@ -247,7 +353,7 @@ export default function App(){
         }
       }, ()=>{
         const curB = batRef.current
-        if(curB && curB.eph!=='result') setTimeout(enemyTurn, 250)
+        if(curB && curB.eHp > 0 && curB.pHp > 0 && curB.eph!=='result') setTimeout(enemyTurn, 250)
         else setBat(x=>x?{ ...x, busy:false }:x)
       })
     }
@@ -352,24 +458,24 @@ export default function App(){
     notify(`Team healed! −${cost}🪙`)
   }
 
-  /* ── joystick ── */
-  const [joy, setJoy] = useState(null)   // { ox, oy, x, y }
+  /* ── fixed joystick ── */
+  const [joy, setJoy] = useState({ active:false, ox:0, oy:0, dx:0, dy:0 })
   const joyStart = e=>{
     const t = e.touches ? e.touches[0] : e
-    setJoy({ ox:t.clientX, oy:t.clientY, x:t.clientX, y:t.clientY })
+    setJoy({ active:true, ox:t.clientX, oy:t.clientY, dx:0, dy:0 })
   }
   const joyMove = e=>{
-    if(!joy) return
+    if(!joy.active) return
     const t = e.touches ? e.touches[0] : e
-    const dx = t.clientX-joy.ox, dy = t.clientY-joy.oy
-    const len = Math.hypot(dx,dy), max = 55
+    const dx = t.clientX - joy.ox, dy = t.clientY - joy.oy
+    const len = Math.hypot(dx,dy), max = 45
     const cl = Math.min(len, max)
     const nx = len ? dx/len*cl : 0, ny = len ? dy/len*cl : 0
-    setJoy(j=>({ ...j, x:j.ox+nx, y:j.oy+ny }))
+    setJoy(j=>({ ...j, dx:nx, dy:ny }))
     if(engineRef.current) engineRef.current.input = { x:nx/max, z:ny/max }
   }
   const joyEnd = ()=>{
-    setJoy(null)
+    setJoy({ active:false, ox:0, oy:0, dx:0, dy:0 })
     if(engineRef.current) engineRef.current.input = { x:0, z:0 }
   }
 
@@ -380,6 +486,21 @@ export default function App(){
   return (
   <div className="app">
     <canvas ref={canvasRef} className="gl" />
+
+    {startOverlay && (
+      <div 
+        className="fade-in" 
+        style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.85)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', color:'var(--gold)', cursor:'pointer', fontSize:24, fontFamily:'var(--ft)' }}
+        onClick={() => {
+           AUDIO.init().then(() => {
+             setStartOverlay(false)
+             if(phase === 'title') AUDIO.playTitle()
+           })
+        }}
+      >
+        TAP TO ENTER
+      </div>
+    )}
 
     {/* ═══ TITLE ═══ */}
     {phase==='title' && (
@@ -455,6 +576,41 @@ export default function App(){
 
     {/* ═══ WORLD HUD ═══ */}
     {phase==='world' && !cs && !evo && (<>
+      {/* ── QUEST HUD ── */}
+      {QUESTS && QUESTS[questIdx] && (
+        <div style={{ position:'absolute', top: 50, left:'50%', transform:'translateX(-50%)', zIndex: 10, display:'flex', flexDirection:'column', alignItems:'center' }}>
+          <button className="panel" onClick={() => setQuestExpanded(!questExpanded)} style={{ 
+            padding:'6px 16px', borderRadius:20, background:'rgba(16,28,48,0.85)', 
+            border:'1px solid var(--gold)', boxShadow:'0 0 12px rgba(245,196,48,0.2)',
+            display:'flex', alignItems:'center', gap:8, cursor:'pointer'
+          }}>
+            <span style={{ color:'var(--gold)' }}>◈</span>
+            <span style={{ fontFamily:'var(--ft)', fontWeight:700, fontSize:13 }}>{QUESTS[questIdx].title}</span>
+          </button>
+          {questExpanded && (
+            <div className="panel fade-in" style={{ marginTop: 8, padding: 12, width: 280, background:'rgba(16,28,48,0.95)', border:'1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ fontSize:12, marginBottom:6 }}>{QUESTS[questIdx].desc}</div>
+              <div style={{ fontSize:11, color:'var(--gold3)' }}>💡 {QUESTS[questIdx].hint}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── OFF-SCREEN CHEVRON ── */}
+      {wpScreen.visible && (
+        <div style={{
+          position: 'absolute', zIndex: 9, pointerEvents: 'none',
+          left: wpScreen.x || (window.innerWidth/2 + Math.cos(wpScreen.angle) * (window.innerWidth/2 - 40)),
+          top: wpScreen.y || (window.innerHeight/2 + Math.sin(wpScreen.angle) * (window.innerHeight/2 - 40)),
+          transform: `translate(-50%, -50%) rotate(${wpScreen.angle}rad)`
+        }}>
+          <div style={{ color:'var(--gold)', fontSize: 24, textShadow:'0 0 8px rgba(0,0,0,0.8)' }}>▸</div>
+          <div style={{ position:'absolute', top:'100%', left:'50%', transform:`translate(-50%, 0) rotate(-${wpScreen.angle}rad)`, fontSize:10, fontWeight:700, color:'var(--gold)', marginTop:4, textShadow:'0 1px 2px #000' }}>
+            {wpScreen.dist}m
+          </div>
+        </div>
+      )}
+
       <div className="whud-top">
         <div style={{ width:36, height:36, borderRadius:'50%', border:'2px solid var(--gold)',
           background:'linear-gradient(135deg,#3A5878,#1A2C44)', display:'flex', alignItems:'center',
@@ -483,23 +639,21 @@ export default function App(){
       </div>
       {/* nav fabs */}
       <div className="whud-nav">
-        {[['team','🐾'],['bag','🎒'],['map','🌎'],['scientists','🔬']].map(([id,ic])=>(
+        {[['team','🐾'],['bag','🎒'],['map','🌎'],['scientists','🔬'],['settings','⚙️']].map(([id,ic])=>(
           <button key={id} className="nav-fab" onClick={()=>{ AUDIO.click(); setPhase(id) }}>
             {ic}{id==='team'&&party.some(a=>a.hp<a.maxHp)&&<span className="dot"/>}
           </button>
         ))}
       </div>
-      {/* joystick (touch) */}
-      <div className="joy-zone" onTouchStart={joyStart} onTouchMove={joyMove} onTouchEnd={joyEnd}
-           onMouseDown={joyStart} onMouseMove={e=>joy&&joyMove(e)} onMouseUp={joyEnd} onMouseLeave={joyEnd}>
-        {joy && <>
-          <div className="joy-base" style={{ left:joy.ox, top:joy.oy }}/>
-          <div className="joy-knob" style={{ left:joy.x, top:joy.y }}/>
-        </>}
+      {/* fixed joystick */}
+      <div className="fixed-joy" onTouchStart={joyStart} onTouchMove={joyMove} onTouchEnd={joyEnd}
+           onMouseDown={joyStart} onMouseMove={e=>{if(joy.active) joyMove(e)}} onMouseUp={joyEnd} onMouseLeave={joyEnd}>
+        <div className="joy-base" />
+        <div className="joy-knob" style={{ transform:`translate(calc(-50% + ${joy.dx}px), calc(-50% + ${joy.dy}px))` }}/>
       </div>
-      <div className="ov" style={{ bottom:14, left:'50%', transform:'translateX(-50%)', fontSize:11,
-        color:'rgba(255,255,255,.45)', textAlign:'center', pointerEvents:'none' }}>
-        WASD / drag to move · walk into tall grass to find animals
+      <div className="ov" style={{ bottom:170, left:'50%', transform:'translateX(-50%)', fontSize:11,
+        color:'rgba(255,255,255,.45)', textAlign:'center', pointerEvents:'none', whiteSpace:'nowrap' }}>
+        WASD / drag joystick to move · walk into tall grass to find animals
       </div>
     </>)}
 
@@ -796,27 +950,148 @@ export default function App(){
       </div>
     )}
 
+    {/* ═══ SETTINGS ═══ */}
+    {phase==='settings' && (
+      <div className="menu-screen fade-in">
+        <div className="menu-head">
+          <button className="back-btn" onClick={()=>{ AUDIO.click(); setPhase('world') }}>←</button>
+          <div className="menu-title">SETTINGS</div>
+        </div>
+        <div className="menu-body" style={{ alignItems:'center', paddingTop:40, gap:20 }}>
+          <div style={{ fontSize:60, marginBottom:10 }}>⚙️</div>
+
+          {/* Soundtrack Selector */}
+          <div className="panel" style={{ padding: 20, width: '100%', maxWidth: 300, textAlign: 'center' }}>
+            <h3 style={{ margin: '0 0 10px 0', color: 'var(--gold)', fontFamily:'var(--ft)' }}>Soundtrack</h3>
+            
+            <select 
+              className="btn btn-outline" 
+              style={{ width: '100%', appearance: 'none', textAlign: 'center', marginBottom: 10, background: 'var(--bg)', color: 'var(--tx)' }}
+              onChange={(e) => {
+                AUDIO.click()
+                if(e.target.value === 'custom') {
+                  document.getElementById('customAudioInput').click()
+                  return
+                }
+                AUDIO.bgm.src = e.target.value;
+                if(phase === 'world') AUDIO.bgm.play().catch(()=>{});
+              }}
+            >
+              <option value="/Two_Voices_at_the_Edge.mp3">Two Voices at the Edge (Default)</option>
+              <option value="/Beyond_the_Pine_Canopy.mp3">Beyond the Pine Canopy</option>
+              <option value="/Maddy_Daddy_Go.mp3">Maddy Daddy Go</option>
+              <option value="/The_Clearings_Call.mp3">The Clearing's Call</option>
+              <option value="custom">Upload Custom MP3...</option>
+            </select>
+            
+            <input 
+              type="file" 
+              id="customAudioInput" 
+              accept="audio/*" 
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files[0]
+                if(file) {
+                   const url = URL.createObjectURL(file)
+                   AUDIO.bgm.src = url
+                   if(phase === 'world') AUDIO.bgm.play().catch(()=>{})
+                }
+              }}
+            />
+            
+            <div style={{ fontSize:12, color:'var(--tx2)' }}>
+              Select a built-in track or upload your own MP3 to play in the background.
+            </div>
+          </div>
+
+          <button className="btn btn-gold" style={{ maxWidth:260, marginTop:10 }} onClick={()=>{
+            AUDIO.click()
+            try{
+              localStorage.setItem(SAVE_KEY, JSON.stringify({ player, party, coins, xp, level, cages, flags }))
+              notify('Game Saved Successfully!')
+            }catch(e){
+              notify('Failed to save game.')
+            }
+          }}>💾 SAVE GAME</button>
+          <button className="btn btn-outline" style={{ maxWidth:260 }} onClick={()=>{
+            AUDIO.click()
+            if(window.confirm('Are you sure you want to start over? All progress will be lost!')){
+              localStorage.removeItem(SAVE_KEY)
+              window.location.reload()
+            }
+          }}>⚠️ START OVER</button>
+          <div style={{ fontSize:12, color:'var(--tx2)', textAlign:'center', marginTop:10 }}>
+            Your progress is also auto-saved as you play.<br/>Use "Start Over" if you wish to reset your journey.
+          </div>
+
+          
+          <div className="panel" style={{ padding: 20, marginTop: 20, textAlign: 'center', maxWidth: 300 }}>
+            <h3 style={{ margin: '0 0 10px 0', color: 'var(--gold)', fontFamily:'var(--ft)' }}>About the Creators</h3>
+            <img src="/creators.png" alt="Maddox and Merrick Lee" style={{ width: '100%', borderRadius: 8, marginBottom: 15, border: '2px solid rgba(255,255,255,0.1)' }}/>
+            <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--tx2)', margin: 0 }}>
+              <strong>Wilddox</strong> was created by a father and son duo: Merrick & Maddox Lee.
+              <br/><br/>
+              Merrick saw how much Maddox loved playing Pokemon every day and decided to create a similar game, but with people they knew and real animals. And yes, "Wilddox" is a mix of the Wild and Maddox!
+            </p>
+          </div>
+        </div>
+      </div>
+    )}
+
     {/* ═══ CUTSCENE ═══ */}
     {cs && csData && (
-      <div className="cs fade-in" onClick={advanceCS}>
-        <div style={{ position:'absolute', top:'14%', left:0, right:0, textAlign:'center' }}>
-          <div style={{ fontSize:'clamp(56px,9vw,76px)', filter:'drop-shadow(0 4px 20px rgba(0,0,0,.7))' }}>{csData.em}</div>
-          <div style={{ fontFamily:'var(--ft)', fontSize:13, fontWeight:700, color:'rgba(255,255,255,.4)',
-            letterSpacing:'.14em', textTransform:'uppercase', marginTop:8 }}>{csData.sp}</div>
-        </div>
-        <div style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', display:'flex', gap:5 }}>
+      <div className="cs fade-in" onClick={advanceCS} style={{ background:'rgba(0,0,0,0.6)', justifyContent:'flex-end' }}>
+        <div style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', display:'flex', gap:5, zIndex:35 }}>
           {csData.lines.map((_,i)=>(
             <div key={i} style={{ width:cs.line===i?20:6, height:5, borderRadius:999,
               background:cs.line===i?'var(--gold)':'rgba(255,255,255,.18)', transition:'all .3s' }}/>
           ))}
         </div>
-        <div className="cs-card slide-up">
-          <div style={{ fontSize:14, lineHeight:1.7, fontStyle:'italic' }}>
-            "{csData.lines[cs.line].replace('{p}', player.name||'Explorer')}"
+
+        <div style={{ width:'100%', maxWidth:700, margin:'0 auto', position:'relative' }}>
+          
+          {/* Character Emoji Sticking out */}
+          <div className={`cs-em ${cs.typing ? 'talking' : ''}`} style={{ 
+            position:'absolute', right:24, bottom:'100%', marginBottom:-16,
+            fontSize:'clamp(80px,14vw,110px)', filter:'drop-shadow(0 8px 24px rgba(0,0,0,.6))',
+            zIndex:31, transformOrigin:'bottom center' 
+          }}>{csData.em}</div>
+
+          {/* Persona-style Name Tag */}
+          <div style={{
+            position:'relative', left:16, top:10, zIndex:32,
+            display:'inline-block', background:'var(--gold)', color:'#000',
+            padding:'6px 20px', fontFamily:'var(--ft)', fontSize:18, fontWeight:900,
+            textTransform:'uppercase', letterSpacing:'.05em',
+            transform:'skewX(-10deg)', boxShadow:'2px 4px 12px rgba(0,0,0,.5)'
+          }}>
+            <div style={{ transform:'skewX(10deg)' }}>{csData.sp}</div>
           </div>
-          <div style={{ marginTop:12, textAlign:'right', fontFamily:'var(--ft)', fontSize:13,
-            fontWeight:700, color:'var(--blue3)' }}>
-            {cs.line < csData.lines.length-1 ? 'Tap to continue →' : "Let's go →"}
+
+          {/* Main Dialog Box */}
+          <div className="slide-up" key={cs.line} style={{
+            background:'rgba(16,22,34,.95)', borderTop:'4px solid var(--gold)',
+            boxShadow:'0 -4px 30px rgba(0,0,0,.6)', padding:'36px 24px 24px',
+            position:'relative', zIndex:30
+          }}>
+            <div style={{ fontSize:20, lineHeight:1.6, fontStyle:'italic', color:'#fff', minHeight:75 }}>
+              "<Typewriter 
+                 text={csData.lines[cs.line].replace('{p}', player.name||'Explorer')} 
+                 typing={cs.typing} 
+                 setTyping={handleSetCsTyping} 
+              />"
+            </div>
+
+            {/* Huge Next Button */}
+            <button className="pulse" onClick={(e)=>{ e.stopPropagation(); advanceCS(); }} style={{
+              display:'block', width:'100%', marginTop:24,
+              background:'var(--gold)', color:'#000', border:'none',
+              borderRadius:12, padding:'16px', fontSize:18, fontWeight:900,
+              fontFamily:'var(--ft)', textTransform:'uppercase',
+              boxShadow:'0 6px 16px rgba(0,0,0,.4)', cursor:'pointer'
+            }}>
+              {cs.typing ? 'Skip ⏭' : (cs.line < csData.lines.length-1 ? 'Tap to Continue ➔' : "Let's Go ➔")}
+            </button>
           </div>
         </div>
       </div>
