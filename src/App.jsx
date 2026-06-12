@@ -813,10 +813,10 @@ export default function App(){
     {phase==='team' && (
       <div className="menu-screen fade-in">
         <div className="menu-head">
-          <button className="back-btn" onClick={()=>{ AUDIO.click(); setPhase('world') }}>←</button>
           <div className="menu-title">TEAM {party.length}/6</div>
           {party.some(a=>a.hp<a.maxHp) &&
-            <button className="bsm bsm-blue" onClick={healTeam}>💊 Heal ({party.filter(a=>a.hp<a.maxHp).length*15}🪙)</button>}
+            <button className="bsm bsm-blue" onClick={healTeam} style={{ marginRight: 8 }}>💊 Heal ({party.filter(a=>a.hp<a.maxHp).length*15}🪙)</button>}
+          <button className="back-btn" onClick={()=>{ AUDIO.click(); setPhase('world') }} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
         </div>
         <div className="menu-body">
           {party.map((a,i)=>(
@@ -864,8 +864,8 @@ export default function App(){
     {phase==='bag' && (
       <div className="menu-screen fade-in">
         <div className="menu-head">
-          <button className="back-btn" onClick={()=>{ AUDIO.click(); setPhase('world') }}>←</button>
-          <div className="menu-title">ITEMS & CAGES</div>
+          <div className="menu-title">INVENTORY</div>
+          <button className="back-btn" onClick={()=>{ AUDIO.click(); setPhase('world') }} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
         </div>
         <div className="menu-body">
           <div className="panel" style={{ padding:18, textAlign:'center' }}>
@@ -995,8 +995,8 @@ export default function App(){
     {phase==='settings' && (
       <div className="menu-screen fade-in">
         <div className="menu-head">
-          <button className="back-btn" onClick={()=>{ AUDIO.click(); setPhase('world') }}>←</button>
           <div className="menu-title">SETTINGS</div>
+          <button className="back-btn" onClick={()=>{ AUDIO.click(); setPhase('world') }} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
         </div>
         <div className="menu-body" style={{ alignItems:'center', paddingTop:40, gap:20 }}>
           <div style={{ fontSize:60, marginBottom:10 }}>⚙️</div>
