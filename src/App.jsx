@@ -4,6 +4,7 @@ import { Engine } from './game/engine.js'
 import { AUDIO } from './game/audio.js'
 import { ANIMALS, WILD, HUNTER_ANIMAL, CAGES, SCIENTISTS, REGIONS, TIPS, STORY, QUESTS,
          dc, ri, clamp, pct, calcCatch, mkAnimal } from './game/data.js'
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd'
 
 const SAVE_KEY = 'wilddox_save_v1'
 const hpc = p => p>55?'bhi':p>25?'bmd':'blo'
@@ -472,18 +473,30 @@ export default function App(){
   const healTeam = ()=>{
     const inj = party.filter(a=>a.hp<a.maxHp).length
     const cost = inj*15
+    const canAfford = coins >= cost
     if(inj===0){ notify('Team at full HP!'); return }
-    if(coins < cost){ notify(`Need ${cost}🪙`); return }
+    if(!canAfford){ notify(`Need ${cost}🪙`); return }
     trackEvent('heal_team', { cost, injured_count: inj })
     AUDIO.heal()
     setCoins(c=>c-cost)
     setParty(p=>{
       const np = dc(p)
-      np.forEach(a => a.hp = a.maxHp)
+      np.forEach(a=>a.hp=a.maxHp)
       return np
     })
-    notify(`Team healed! −${cost}🪙`)
   }
+
+  const onDragEnd = (result) => {
+    if (!result.destination) return;
+    setParty(p => {
+      const np = Array.from(p);
+      const [reorderedItem] = np.splice(result.source.index, 1);
+      np.splice(result.destination.index, 0, reorderedItem);
+      AUDIO.click();
+      return np;
+    });
+  }
+
 
   /* ── fixed joystick ── */
   const [joy, setJoy] = useState({ active:false, ox:0, oy:0, dx:0, dy:0 })
@@ -822,52 +835,87 @@ export default function App(){
               <button 
                 className={`bsm ${canAfford ? 'bsm-blue' : 'bsm-dark'}`} 
                 onClick={healTeam} 
-                style={{ marginRight: 8, opacity: canAfford ? 1 : 0.5 }}
+                style={{ opacity: canAfford ? 1 : 0.5 }}
               >
                 {canAfford ? '💊' : '🔒'} Heal ({cost}🪙)
               </button>
             )
           })()}
-          <button className="back-btn" onClick={()=>{ AUDIO.click(); setPhase('world') }} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
         </div>
-        <div className="menu-body">
-          {party.map((a,i)=>(
-            <div key={i} className={'team-item'+(i===0?' lead':'')}>
-              <div className="team-thumb">{
-                a.id==='fox'?'🦊':a.id==='wolf'?'🐺':a.id==='raccoon'?'🦝':a.id==='deer'||a.id==='cdeer'?'🦌':
-                a.id==='owl'?'🦉':a.id==='bear'?'🐻':a.id==='hawk'?'🦅':a.id==='rabbit'?'🐇':
-                a.id==='otter'?'🦦':a.id==='beaver'?'🦫':a.id==='snake'?'🐍':'🐾'}</div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:3 }}>
-                  <span style={{ fontFamily:'var(--ft)', fontSize:15, fontWeight:700 }}>{a.name}</span>
-                  {i===0 && <span className="badge b-gold">Lead</span>}
-                  {a.evolved && <span className="badge b-green">✨ Evolved</span>}
-                  <span style={{ marginLeft:'auto', fontFamily:'var(--ft)', fontSize:13, fontWeight:700, color:'var(--tx2)' }}>Lv.{a.level}</span>
+        <div className="menu-body" style={{ paddingBottom: 100 }}>
+          <DragDropContext onDragEnd={onDragEnd}>
+            <Droppable droppableId="team-list">
+              {(provided) => (
+                <div {...provided.droppableProps} ref={provided.innerRef}>
+                  {party.map((a,i)=>(
+                    <Draggable key={a.uid || a.id + i} draggableId={a.uid || a.id + i} index={i}>
+                      {(provided, snapshot) => (
+                        <div 
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          className={'team-item'+(i===0?' lead':'')}
+                          style={{
+                            ...provided.draggableProps.style,
+                            opacity: snapshot.isDragging ? 0.9 : 1,
+                            boxShadow: snapshot.isDragging ? '0 8px 24px rgba(0,0,0,0.5)' : 'none',
+                            transform: provided.draggableProps.style?.transform || 'none',
+                            zIndex: snapshot.isDragging ? 100 : 1,
+                            position: snapshot.isDragging ? 'relative' : 'static',
+                          }}
+                        >
+                          <div className="team-thumb" {...provided.dragHandleProps} style={{ cursor: 'grab' }}>{
+                            a.id==='fox'?'🦊':a.id==='wolf'?'🐺':a.id==='raccoon'?'🦝':a.id==='deer'||a.id==='cdeer'?'🦌':
+                            a.id==='owl'?'🦉':a.id==='bear'?'🐻':a.id==='hawk'?'🦅':a.id==='rabbit'?'🐇':
+                            a.id==='otter'?'🦦':a.id==='beaver'?'🦫':a.id==='snake'?'🐍':'🐾'}</div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:3 }}>
+                              <span style={{ fontFamily:'var(--ft)', fontSize:15, fontWeight:700 }}>{a.name}</span>
+                              {i===0 && <span className="badge b-gold">Lead</span>}
+                              {a.evolved && <span className="badge b-green">✨ Evolved</span>}
+                              <span style={{ marginLeft:'auto', fontFamily:'var(--ft)', fontSize:13, fontWeight:700, color:'var(--tx2)' }}>Lv.{a.level}</span>
+                            </div>
+                            <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
+                              <div className="bw" style={{ flex:1, height:7 }}>
+                                <div className={'bf '+hpc(pct(a.hp,a.maxHp))} style={{ width:pct(a.hp,a.maxHp)+'%' }}/>
+                              </div>
+                              <span style={{ fontSize:10, color:'var(--tx3)', whiteSpace:'nowrap' }}>{a.hp}/{a.maxHp}</span>
+                            </div>
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                              <Hearts bond={a.bond}/>
+                              {ANIMALS[a.id] && !a.evolved &&
+                                <span style={{ fontSize:10, color:'var(--blue3)' }}>→ {ANIMALS[a.id].evo.name} Lv.{ANIMALS[a.id].evo.level}</span>}
+                            </div>
+                          </div>
+                          <div {...provided.dragHandleProps} style={{ padding: 10, cursor: 'grab', color: 'var(--tx3)' }}>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="8" y1="6" x2="21" y2="6"></line>
+                              <line x1="8" y1="12" x2="21" y2="12"></line>
+                              <line x1="8" y1="18" x2="21" y2="18"></line>
+                              <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                              <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                              <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                            </svg>
+                          </div>
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
                 </div>
-                <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
-                  <div className="bw" style={{ flex:1, height:7 }}>
-                    <div className={'bf '+hpc(pct(a.hp,a.maxHp))} style={{ width:pct(a.hp,a.maxHp)+'%' }}/>
-                  </div>
-                  <span style={{ fontSize:10, color:'var(--tx3)', whiteSpace:'nowrap' }}>{a.hp}/{a.maxHp}</span>
-                </div>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <Hearts bond={a.bond}/>
-                  {ANIMALS[a.id] && !a.evolved &&
-                    <span style={{ fontSize:10, color:'var(--blue3)' }}>→ {ANIMALS[a.id].evo.name} Lv.{ANIMALS[a.id].evo.level}</span>}
-                </div>
-              </div>
-              {i>0 && <button className="bsm bsm-dark" onClick={()=>{
-                AUDIO.click()
-                setParty(p=>{ const np=dc(p); const [it]=np.splice(i,1); np.unshift(it); return np })
-              }}>Lead</button>}
-            </div>
-          ))}
+              )}
+            </Droppable>
+          </DragDropContext>
           {party.length<6 && (
-            <div style={{ border:'1.5px dashed var(--border2)', borderRadius:12, padding:16, textAlign:'center', color:'var(--tx3)' }}>
+            <div style={{ border:'1.5px dashed var(--border2)', borderRadius:12, padding:16, textAlign:'center', color:'var(--tx3)', marginTop: 10 }}>
               <div style={{ fontSize:18 }}>+</div>
               <div style={{ fontSize:12 }}>{6-party.length} slot{6-party.length===1?'':'s'} open — find animals in tall grass</div>
             </div>
           )}
+        </div>
+        <div style={{ position: 'absolute', bottom: 30, left: '50%', transform: 'translateX(-50%)', width: '80%', maxWidth: 300, zIndex: 50 }}>
+          <button className="btn btn-gold" onClick={()=>{ AUDIO.click(); setPhase('world') }} style={{ width: '100%', fontSize: 18, padding: '16px 0', boxShadow: '0 8px 24px rgba(0,0,0,0.6)' }}>
+            BACK TO GAME
+          </button>
         </div>
       </div>
     )}

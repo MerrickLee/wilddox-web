@@ -116,6 +116,7 @@ export const pct = (v,m) => Math.round(v/m*100)
 export const calcCatch = (hp,mhp,cr,bonus) => clamp(Math.round(cr+(1-hp/mhp)*35+bonus),5,97)
 export function mkAnimal(base){
   return { ...dc(base),
+    uid: Math.random().toString(36).substring(2, 11),
     hp: base.baseHp||base.maxHp||40, maxHp: base.baseHp||base.maxHp||40,
     level: base.level||5, bond:10, atk:base.atk||8, def:base.def||6, evolved:false }
 }
