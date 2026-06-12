@@ -1067,12 +1067,16 @@ export default function App(){
 
           
           <div className="panel" style={{ padding: 20, marginTop: 20, textAlign: 'center', maxWidth: 300 }}>
-            <h3 style={{ margin: '0 0 10px 0', color: 'var(--gold)', fontFamily:'var(--ft)' }}>About the Creators</h3>
-            <img src="/creators.png" alt="Maddox and Merrick Lee" style={{ width: '100%', borderRadius: 8, marginBottom: 15, border: '2px solid rgba(255,255,255,0.1)' }}/>
-            <p style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--tx2)', margin: 0 }}>
-              <strong>Wilddox</strong> was created by a father and son duo: Merrick & Maddox Lee.
-              <br/><br/>
-              Merrick saw how much Maddox loved playing Pokemon every day and decided to create a similar game, but with people they knew and real animals. And yes, "Wilddox" is a mix of the Wild and Maddox!
+            <h3 style={{ margin: '0 0 16px 0', color: 'var(--gold)', fontFamily:'var(--ft)' }}>About the Creators</h3>
+            <img src="/creators.png" alt="Merrick and Maddox Lee" style={{ width: '100%', borderRadius: 12, marginBottom: 16, border: '2px solid rgba(245,196,48,0.3)' }} />
+            <div style={{ fontSize: 14, color: 'var(--tx2)', lineHeight: 1.5, marginBottom: 8 }}>
+              <strong>Merrick & Maddox Lee</strong>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--tx3)', lineHeight: 1.5, fontStyle: 'italic', marginBottom: 16 }}>
+              A father and son team. Built with love, curiosity, and a shared passion for wildlife and adventure!
+            </div>
+            <p style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--tx2)', margin: 0, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 16 }}>
+              Merrick saw how much Maddox loved playing similar games and decided to create one with him, featuring real animals. And yes, "Wilddox" is a mix of the Wild and Maddox!
             </p>
           </div>
         </div>
@@ -1115,7 +1119,7 @@ export default function App(){
             boxShadow:'0 -4px 30px rgba(0,0,0,.6)', padding:'36px 24px 24px',
             position:'relative', zIndex:30
           }}>
-            <div style={{ fontSize:20, lineHeight:1.6, fontStyle:'italic', color:'#fff', minHeight:75 }}>
+            <div style={{ fontSize:22, lineHeight:1.6, fontStyle:'italic', color:'#fff', minHeight:85 }}>
               "<Typewriter 
                  text={csData.lines[cs.line].replace('{p}', player.name||'Explorer')} 
                  typing={cs.typing} 
@@ -1124,12 +1128,12 @@ export default function App(){
             </div>
 
             {/* Huge Next Button */}
-            <button className="pulse" onClick={(e)=>{ e.stopPropagation(); advanceCS(); }} style={{
+            <button className="pulse-glow" onClick={(e)=>{ e.stopPropagation(); advanceCS(); }} style={{
               display:'block', width:'100%', marginTop:24,
-              background:'var(--gold)', color:'#000', border:'none',
-              borderRadius:12, padding:'16px', fontSize:18, fontWeight:900,
+              background:'linear-gradient(to right, #F5C430, #D4A017)', color:'#000', border:'none',
+              borderRadius:16, padding:'20px', fontSize:22, fontWeight:900,
               fontFamily:'var(--ft)', textTransform:'uppercase',
-              boxShadow:'0 6px 16px rgba(0,0,0,.4)', cursor:'pointer'
+              cursor:'pointer'
             }}>
               {cs.typing ? 'Skip ⏭' : (cs.line < csData.lines.length-1 ? 'Tap to Continue ➔' : "Let's Go ➔")}
             </button>

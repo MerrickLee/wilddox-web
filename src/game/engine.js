@@ -627,17 +627,17 @@ export class Engine {
       const { legs, arms, upperBody } = this.player.userData
       legs.forEach((l,i)=>{ 
         const cycle = this.walkPhase + i*Math.PI
-        l.upper.rotation.z = Math.sin(cycle)*.6
-        l.lower.rotation.z = -Math.max(0, Math.sin(cycle)) * 1.2
+        l.upper.rotation.z = Math.sin(cycle)*.8
+        l.lower.rotation.z = -Math.max(0, Math.sin(cycle)) * 1.4
       })
       arms.forEach((a,i)=>{ 
         const cycle = this.walkPhase + (1-i)*Math.PI
-        a.upper.rotation.z = Math.sin(cycle)*.5
-        a.lower.rotation.z = 0.15 + Math.max(0, Math.sin(cycle)) * 0.5
+        a.upper.rotation.z = Math.sin(cycle)*.6
+        a.lower.rotation.z = 0.15 + Math.max(0, Math.sin(cycle)) * 0.6
       })
       
-      const bounce = Math.abs(Math.sin(this.walkPhase)) * 0.08
-      const sideSway = Math.sin(this.walkPhase) * 0.06
+      const bounce = Math.abs(Math.sin(this.walkPhase)) * 0.14
+      const sideSway = Math.sin(this.walkPhase) * 0.08
       if(upperBody) {
         upperBody.position.y = bounce
         upperBody.rotation.x = sideSway
