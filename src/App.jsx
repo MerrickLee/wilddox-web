@@ -454,7 +454,11 @@ export default function App(){
     if(coins < cost){ notify(`Need ${cost}🪙`); return }
     AUDIO.heal()
     setCoins(c=>c-cost)
-    setParty(p=>p.map(a=>({ ...a, hp:a.maxHp })))
+    setParty(p=>{
+      const np = dc(p)
+      np.forEach(a => a.hp = a.maxHp)
+      return np
+    })
     notify(`Team healed! −${cost}🪙`)
   }
 
