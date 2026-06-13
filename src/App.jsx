@@ -104,7 +104,8 @@ export default function App(){
   /* ── engine boot ── */
   useEffect(()=>{
     const eng = new Engine(canvasRef.current, {
-      onEncounter: () => startEncounterRef.current && startEncounterRef.current()
+      onEncounter: () => startEncounterRef.current && startEncounterRef.current(),
+      onHealItem: () => healItemRef.current && healItemRef.current()
     })
     engineRef.current = eng
     /* load save */
@@ -237,7 +238,25 @@ export default function App(){
     startCS('mark')
   }
 
-  /* ── encounters ── */
+  /* ── encounters and healing ── */
+  const healItemRef = useRef(null)
+  healItemRef.current = () => {
+    if(phase !== 'world') return
+    const isFullHp = party.every(a => a.hp === a.maxHp)
+    if(isFullHp) {
+      notify('Found a berry, but team is already at full HP! 🍒')
+    } else {
+      setParty(p => {
+        const np = dc(p)
+        np.forEach(a => a.hp = a.maxHp)
+        return np
+      })
+      trackEvent('heal_item_pickup')
+      AUDIO.heal()
+      notify('Found a berry! Team fully healed! 🍒')
+    }
+  }
+
   const startEncounterRef = useRef(null)
   startEncounterRef.current = ()=>{
     if(phase!=='world' || cs || evo || !party.length) return

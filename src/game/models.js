@@ -97,6 +97,18 @@ export function cloud(){
   return g
 }
 
+export function fruit(){
+  const g = new THREE.Group()
+  const berry = new THREE.Mesh(new THREE.SphereGeometry(.2, 5, 4), mat(0xE52A40, .6))
+  berry.position.y = .2
+  berry.castShadow = true
+  g.add(berry)
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(.02, .02, .1), mat(0x358030))
+  stem.position.y = .4
+  g.add(stem)
+  return g
+}
+
 /* ── EXPLORER (player character) ── */
 export function explorer({ jacket=0x9A3A20, pants=0x3A4858, skin=0xC89060, pack=0x6A5230, hair=0x2A1A0E, playerName='JOHN' }={}){
   const g = new THREE.Group()

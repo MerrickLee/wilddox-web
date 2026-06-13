@@ -3,7 +3,7 @@
    World: free WASD/joystick movement, third-person camera, grass encounter zones.
    Battle: arena with dynamic swinging camera, attack/heal/cage animation timelines. */
 import * as THREE from 'three'
-import { terrainH, buildTerrain, pine, mountain, rock, flowers, grassTuft, cloud, explorer, buildAnimal, mat } from './models.js'
+import { terrainH, buildTerrain, pine, mountain, rock, flowers, grassTuft, cloud, explorer, buildAnimal, mat, fruit } from './models.js'
 
 const WORLD_RADIUS = 52
 
@@ -137,6 +137,16 @@ export class Engine {
       const m = mountain(14+Math.random()*9, 18+Math.random()*12)
       m.position.set(Math.cos(ang)*d, -2, Math.sin(ang)*d)
       s.add(m)
+    }
+
+    /* healing fruits */
+    this.fruits = []
+    for(let i=0;i<12;i++){
+      const fr = fruit()
+      const x=(Math.random()-.5)*80, z=(Math.random()-.5)*80
+      fr.position.set(x, terrainH(x,z)+.1, z)
+      s.add(fr)
+      this.fruits.push(fr)
     }
 
     /* clouds */
@@ -657,6 +667,16 @@ export class Engine {
           }
         }
       }
+
+      /* fruit collision */
+      for(let i=this.fruits.length-1; i>=0; i--){
+        const fr = this.fruits[i]
+        if(Math.hypot(fx-fr.position.x, fz-fr.position.z) < 1.5){
+          this.worldScene.remove(fr)
+          this.fruits.splice(i, 1)
+          if(this.cb.onHealItem) this.cb.onHealItem()
+        }
+      }
     } else {
       const { legs, arms, upperBody } = this.player.userData
       legs.forEach(l=>{ 
@@ -668,10 +688,20 @@ export class Engine {
         a.lower.rotation.z += (0.15 - a.lower.rotation.z) * .15
       })
       if(upperBody) {
-        upperBody.position.y *= .8
-        upperBody.rotation.x *= .8
+        upperBody.position.y += (0 - upperBody.position.y) * .15
+        upperBody.rotation.x *= .85
       }
     }
+    
+    /* fruit respawn */
+    if(this.fruits.length < 15 && Math.random() < dt * 0.05) {
+      const fr = fruit()
+      const x=(Math.random()-.5)*80, z=(Math.random()-.5)*80
+      fr.position.set(x, terrainH(x,z)+.1, z)
+      this.worldScene.add(fr)
+      this.fruits.push(fr)
+    }
+
     /* smooth facing */
     let dy = this.playerYaw - this.player.rotation.y
     while(dy > Math.PI) dy -= Math.PI*2
