@@ -320,6 +320,13 @@ export class Engine {
     this.camOverride = null
   }
 
+  updateBattler(playerAnimalId, playerEvolved){
+    if(this.battleP){ this.battleScene.remove(this.battleP) }
+    this.battleP = buildAnimal(playerAnimalId, playerEvolved)
+    this.battleP.position.set(-3.6, 0, 0)
+    this.battleScene.add(this.battleP)
+  }
+
   endBattle(){
     this.mode = 'world'
     this.encounterCooldown = 4

@@ -493,6 +493,61 @@ export default function App(){
     AUDIO.playWorld()
   }
 
+  const doSwitch = (idx) => {
+    const b = bat
+    if (b.busy || idx === 0) return
+    const target = party[idx]
+    if (target.hp <= 0) { notify(`${target.name} has no energy left!`); return }
+
+    setBat(x => ({ ...x, busy: true }))
+    AUDIO.click()
+
+    let newParty
+    setParty(p => {
+      newParty = dc(p)
+      newParty[0].hp = b.pHp // save current battler's HP
+      const temp = newParty[0]
+      newParty[0] = newParty[idx]
+      newParty[idx] = temp
+      return newParty
+    })
+
+    const newLead = newParty[0]
+    trackEvent('battle_switch', { from_animal: target.name, to_animal: newLead.name })
+    engineRef.current.updateBattler(newLead.id, newLead.evolved)
+    
+    setBat(x => ({ ...x, pHp: newLead.hp, eph: 'intro', blog:[...x.blog.slice(-2), `Switched to ${newLead.name}!`] }))
+    
+    setTimeout(() => {
+       const curB = batRef.current
+       if(!curB || curB.eph==='result' || curB.eHp <= 0 || curB.pHp <= 0){ setBat(x=>x?{...x,busy:false}:x); return }
+       const em = curB.enemy.moves[ri(0, curB.enemy.moves.length-1)]
+       engineRef.current.playEnemyAttack(()=>{
+         AUDIO.hit()
+         const ed = Math.max(1, em.dmg + ri(-2,4))
+         setBat(x=>{
+           const nHp = Math.max(0, x.pHp - ed)
+           const nb = { ...x, pHp:nHp, blog:[...x.blog.slice(-3), `${curB.enemy.name}: ${em.name} — ${ed} dmg`] }
+           if(nHp<=0){ 
+             nb.eph='animating_defeat'
+             nb.res={ ok:false, msg:`${newLead.name} fainted! Retreating...` } 
+             trackEvent('battle_loss', { enemy_name: curB.enemy.name })
+             engineRef.current.onDefeat('player', () => {
+               setBat(curr => curr ? { ...curr, eph: 'result' } : null)
+             })
+           } else {
+             engineRef.current.onLandedHit('enemy')
+             engineRef.current.onTookBigHit('player', ed / newLead.maxHp * 100)
+             AUDIO.bark('hurt')
+           }
+           return nb
+         })
+       }, ()=>{
+         setBat(x=>x?{ ...x, busy:false }:x)
+       })
+    }, 600)
+  }
+
   const healTeam = ()=>{
     const inj = party.filter(a=>a.hp<a.maxHp).length
     const cost = inj*15
@@ -764,9 +819,30 @@ export default function App(){
             <div className="mv-name">⚔️ Battle</div></button>
           {!bat.isHunter && <button className="mv" onClick={()=>{ AUDIO.click(); setBat(b=>({ ...b, eph:'capture' })) }}>
             <div className="mv-name">🪤 Cage</div></button>}
+          {party.length > 1 && <button className="mv" onClick={()=>{ AUDIO.click(); setBat(b=>({ ...b, eph:'switch' })) }}>
+            <div className="mv-name">🔄 Switch</div></button>}
           {!bat.isHunter && <button className="mv" onClick={doBait}>
             <div className="mv-name">🍯 Set Bait</div></button>}
           <button className="mv" onClick={fleeBattle}><div className="mv-name">🏃 Flee</div></button>
+        </div>
+      )}
+
+      {/* switch menu */}
+      {bat.eph==='switch' && (
+        <div className="bat-moves" style={{ width:'min(300px,80vw)' }}>
+          {party.slice(1).map((a, i) => (
+            <button key={i+1} className="mv" disabled={bat.busy || a.hp<=0} onClick={() => doSwitch(i+1)} style={{ opacity: a.hp<=0 ? 0.5 : 1 }}>
+              <div className="mv-name">{a.id==='fox'?'🦊':a.id==='wolf'?'🐺':a.id==='raccoon'?'🦝':'🐾'} {a.name} <span style={{fontSize:11, color:'var(--tx2)'}}>Lv.{a.level}</span></div>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <div className="bw" style={{ flex:1, height:3 }}>
+                   <div className={'bf '+hpc(pct(a.hp, a.maxHp))} style={{ width:pct(a.hp,a.maxHp)+'%' }}/>
+                </div>
+                <span className="mv-pp">{a.hp}/{a.maxHp} HP</span>
+              </div>
+            </button>
+          ))}
+          <button className="mv" disabled={bat.busy} onClick={()=>{ AUDIO.click(); setBat(b=>({ ...b, eph:'intro' })) }}>
+            <div className="mv-name">← Back</div></button>
         </div>
       )}
 
