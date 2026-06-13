@@ -456,7 +456,10 @@ export default function App(){
       const nXp = xp + xg
       const nl = Math.floor(nXp/120)+1
       setXp(nXp); setCoins(c=>c+cg)
-      if(nl > level){ setLevel(nl); AUDIO.levelup(); notify(`Level up! Now Lv.${nl} 🌟`, 3000) }
+      if(nl > level){ 
+        setLevel(nl); AUDIO.levelup(); notify(`Level up! Now Lv.${nl} 🌟`, 3000)
+        trackEvent('player_levelup', { new_level: nl })
+      }
       else notify(`+${xg} XP · +${cg}🪙`)
       /* lead gains */
       setParty(p=>{
@@ -475,6 +478,7 @@ export default function App(){
           np[0].atk = Math.round(np[0].atk*1.2)
           setTimeout(()=>{
             AUDIO.evolve()
+            trackEvent('animal_evolve', { old_name: old.name, new_name: ba.evo.name })
             setEvo({ old, evo:ba.evo })
           }, 300)
         }
