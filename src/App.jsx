@@ -502,18 +502,15 @@ export default function App(){
     setBat(x => ({ ...x, busy: true }))
     AUDIO.click()
 
-    let newParty
-    setParty(p => {
-      newParty = dc(p)
-      newParty[0].hp = b.pHp // save current battler's HP
-      const temp = newParty[0]
-      newParty[0] = newParty[idx]
-      newParty[idx] = temp
-      return newParty
-    })
+    const newParty = dc(party)
+    newParty[0].hp = b.pHp // save current battler's HP
+    const temp = newParty[0]
+    newParty[0] = newParty[idx]
+    newParty[idx] = temp
+    setParty(newParty)
 
     const newLead = newParty[0]
-    trackEvent('battle_switch', { from_animal: target.name, to_animal: newLead.name })
+    trackEvent('battle_switch', { from_animal: party[0].name, to_animal: newLead.name })
     engineRef.current.updateBattler(newLead.id, newLead.evolved)
     
     setBat(x => ({ ...x, pHp: newLead.hp, eph: 'intro', blog:[...x.blog.slice(-2), `Switched to ${newLead.name}!`] }))
