@@ -484,6 +484,7 @@ export default function App(){
       np.forEach(a=>a.hp=a.maxHp)
       return np
     })
+    notify(`Team healed! −${cost}🪙`)
   }
 
   const onDragEnd = (result) => {
@@ -834,7 +835,7 @@ export default function App(){
             return (
               <button 
                 className={`bsm ${canAfford ? 'bsm-blue' : 'bsm-dark'}`} 
-                onClick={healTeam} 
+                onClick={(e) => { e.stopPropagation(); healTeam(); }} 
                 style={{ opacity: canAfford ? 1 : 0.5 }}
               >
                 {canAfford ? '💊' : '🔒'} Heal ({cost}🪙)
