@@ -3,9 +3,39 @@
    World: free WASD/joystick movement, third-person camera, grass encounter zones.
    Battle: arena with dynamic swinging camera, attack/heal/cage animation timelines. */
 import * as THREE from 'three'
-import { terrainH, buildTerrain, pine, mountain, rock, flowers, grassTuft, cloud, explorer, buildAnimal, mat, fruit } from './models.js'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { terrainH, buildTerrain, pine, mountain, rock, flowers, cloud, explorer, buildAnimal, mat, fruit, grassField, waterMaterial } from './models.js'
 
 const WORLD_RADIUS = 52
+
+/* Final color grade + vignette — teal shadows, warm highlights, gentle vignette */
+const GradeShader = {
+  uniforms: { tDiffuse:{ value:null }, uVignette:{ value:.2 } },
+  vertexShader: /* glsl */`
+    varying vec2 vUv;
+    void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse;
+    uniform float uVignette;
+    varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float lum = dot(c.rgb, vec3(.299,.587,.114));
+      /* teal lift in shadows, warm gold push in highlights */
+      c.rgb += (1.-smoothstep(0.,.45,lum)) * vec3(-.012,.014,.022);
+      c.rgb += smoothstep(.55,1.,lum) * vec3(.035,.018,-.012);
+      /* +5% saturation */
+      c.rgb = mix(vec3(lum), c.rgb, 1.05);
+      /* vignette */
+      float d = distance(vUv, vec2(.5));
+      c.rgb *= 1. - uVignette*smoothstep(.42,.85,d);
+      gl_FragColor = c;
+    }`
+}
 
 export class Engine {
   constructor(canvas, cb={}){
@@ -21,16 +51,43 @@ export class Engine {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2))
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    /* cinematic color pipeline */
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+    this.renderer.toneMappingExposure = 1.25
+
+    /* perf tier — phones with very dense screens skip the heavy FX */
+    this.lowFX = (window.devicePixelRatio||1) > 2 || /Mobi|Android/i.test(navigator.userAgent)
 
     this.camera = new THREE.PerspectiveCamera(55, 1, .1, 300)
     this.clock = new THREE.Clock()
+    this.animMats = []                 // materials with a uTime uniform (water, grass wind)
 
     this._buildWorld()
     this._buildBattle()
 
+    /* post-processing: MSAA+HDR target → render → bloom → grade/vignette */
+    const rt = new THREE.WebGLRenderTarget(1, 1, { samples: this.lowFX ? 0 : 4, type: THREE.HalfFloatType })
+    this.composer = new EffectComposer(this.renderer, rt)
+    this.renderPass = new RenderPass(this.worldScene, this.camera)
+    this.composer.addPass(this.renderPass)
+    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(1,1), .35, .6, .85)
+    this.bloomPass.enabled = !this.lowFX
+    this.composer.addPass(this.bloomPass)
+    /* OutputPass applies ACES tone mapping + sRGB conversion; grade runs after, in display space */
+    this.composer.addPass(new OutputPass())
+    this.gradePass = new ShaderPass(GradeShader)
+    this.composer.addPass(this.gradePass)
+
+    /* perf probe for verification: window.__perf = { fps, calls } */
+    this._frames = 0; this._perfT = 0
+    window.__perf = { fps: 0, calls: 0 }
+
     this._resize = () => {
       const w = canvas.clientWidth, h = canvas.clientHeight
       this.renderer.setSize(w, h, false)
+      this.composer.setPixelRatio(this.renderer.getPixelRatio())
+      this.composer.setSize(w, h)
       this.camera.aspect = w/h
       this.camera.updateProjectionMatrix()
     }
@@ -49,17 +106,27 @@ export class Engine {
   /* ════════ WORLD SCENE ════════ */
   _buildWorld(){
     const s = this.worldScene = new THREE.Scene()
-    this._sky(s, '#3A7AD8', '#D8EEFC')
-    s.fog = new THREE.Fog(0xBBDDF2, 30, 110)
+    const sunDir = new THREE.Vector3(38, 20, 14).normalize()
+    this._skyDome(s, {
+      zenith:0x3572CE, horizon:0xF8D9A8, ground:0xB8C8D8, sunDir,
+      sunColor:0xFFF2CC, sunSize:.9985, haloSize:.93
+    })
+    s.fog = new THREE.FogExp2(0xBCC9D8, .0068)
 
-    const hemi = new THREE.HemisphereLight(0xBFD8FF, 0x3A5A30, .55); s.add(hemi)
-    this.worldSun = new THREE.DirectionalLight(0xFFE0B0, 1.25)
-    this.worldSun.position.set(30, 40, 18)
+    /* golden-hour light rig: warm low key + cool sky fill */
+    const hemi = new THREE.HemisphereLight(0xBFD8FF, 0x3E5E30, .55); s.add(hemi)
+    this.worldSun = new THREE.DirectionalLight(0xFFD9A0, 1.9)
+    this.worldSun.position.set(38, 22, 14)
     this.worldSun.castShadow = true
-    this.worldSun.shadow.mapSize.set(2048, 2048)
+    this.worldSun.shadow.mapSize.set(this.lowFX ? 2048 : 4096, this.lowFX ? 2048 : 4096)
+    this.worldSun.shadow.bias = -0.0004
+    this.worldSun.shadow.normalBias = .02
     const sc = this.worldSun.shadow.camera
     sc.left=-60; sc.right=60; sc.top=60; sc.bottom=-60
     s.add(this.worldSun)
+    /* faint warm bounce from the west so shadow sides aren't dead */
+    const bounce = new THREE.DirectionalLight(0xFFB070, .18)
+    bounce.position.set(-30, 10, -20); s.add(bounce)
 
     s.add(buildTerrain())
 
@@ -71,14 +138,15 @@ export class Engine {
     }
     const pathCurve = new THREE.CatmullRomCurve3(pathPts)
     const pathGeo = new THREE.TubeGeometry(pathCurve, 50, 1.4, 5, false)
-    const path = new THREE.Mesh(pathGeo, mat(0x9A7030, 1))
+    const path = new THREE.Mesh(pathGeo, new THREE.MeshStandardMaterial({ color:0x8A6430, roughness:1, metalness:0 }))
     path.scale.y = .06
     path.receiveShadow = true
     s.add(path)
 
-    /* river to the west */
-    const river = new THREE.Mesh(new THREE.PlaneGeometry(6, 110),
-      new THREE.MeshStandardMaterial({ color:0x4A9AD8, roughness:.22, metalness:.15 }))
+    /* river to the west — animated shader water */
+    const wMat = waterMaterial()
+    this.animMats.push(wMat)
+    const river = new THREE.Mesh(new THREE.PlaneGeometry(6, 110, 6, 110), wMat)
     river.rotation.x = -Math.PI/2
     river.position.set(-20, .1, 0)
     s.add(river)
@@ -92,6 +160,8 @@ export class Engine {
       const x = Math.cos(ang)*dist, z = Math.sin(ang)*dist
       if(Math.abs(x - Math.sin(z*.09)*6) < 3.2) continue       // off path
       if(x > -23.5 && x < -16.5) continue                       // off river
+      if(Math.hypot(x, z-40) < 10) continue                     // spawn clearing
+      if(z > 20 && Math.abs(x) < 7) continue                    // title-camera sightline
       const t = pine(1.15)
       t.position.set(x, terrainH(x,z), z)
       s.add(t)
@@ -111,31 +181,52 @@ export class Engine {
       f.position.set(x, terrainH(x,z), z); s.add(f)
     }
 
-    /* encounter grass zones — visible tall-grass patches */
+    /* encounter grass zones — dense tall grass (instanced, wind-swayed) */
     this.grassZones = []
     const zoneDefs = [
       {x: 12, z: -8,  r: 6}, {x: -8, z: -22, r: 5.5}, {x: 18, z: 16, r: 6},
       {x: -12, z: 24, r: 5}, {x: 2, z: -38, r: 6.5}, {x: 30, z: -20, r: 5},
     ]
+    const tallPts = []
     zoneDefs.forEach((zd, i)=>{
-      const zone = { ...zd, id:i }
-      this.grassZones.push(zone)
-      const count = Math.floor(zd.r*zd.r*.9)
+      this.grassZones.push({ ...zd, id:i })
+      const count = Math.floor(zd.r*zd.r*4)
       for(let j=0;j<count;j++){
-        const a=Math.random()*Math.PI*2, d=Math.random()*zd.r
+        const a=Math.random()*Math.PI*2, d=Math.sqrt(Math.random())*zd.r
         const gx=zd.x+Math.cos(a)*d, gz=zd.z+Math.sin(a)*d
-        const tuft = grassTuft()
-        tuft.position.set(gx, terrainH(gx,gz), gz)
-        s.add(tuft)
+        tallPts.push([gx, terrainH(gx,gz), gz])
       }
     })
+    const tallGrass = grassField(tallPts, { color:0x4E8C2E, height:1.15, width:.85 })
+    this.animMats.push(tallGrass.material)
+    s.add(tallGrass)
 
-    /* mountains ring */
+    /* ambient meadow grass scattered across the whole map */
+    const meadowPts = []
+    const meadowN = this.lowFX ? 1600 : 3200
+    for(let i=0;i<meadowN;i++){
+      const x=(Math.random()-.5)*100, z=(Math.random()-.5)*100
+      if(Math.abs(x - Math.sin(z*.09)*6) < 2.4) continue      // off path
+      if(x > -23.5 && x < -16.5) continue                     // off river
+      meadowPts.push([x, terrainH(x,z), z])
+    }
+    const meadow = grassField(meadowPts, { color:0x60A040, height:.55, width:.6 })
+    this.animMats.push(meadow.material)
+    s.add(meadow)
+
+    /* mountains — two rings, far ring hazier for depth */
     for(let i=0;i<10;i++){
       const ang = (i/10)*Math.PI*2
       const d = 75+Math.random()*15
       const m = mountain(14+Math.random()*9, 18+Math.random()*12)
       m.position.set(Math.cos(ang)*d, -2, Math.sin(ang)*d)
+      s.add(m)
+    }
+    for(let i=0;i<8;i++){
+      const ang = (i/8)*Math.PI*2 + .35
+      const d = 115+Math.random()*20
+      const m = mountain(24+Math.random()*12, 30+Math.random()*14, 0x5A7298)
+      m.position.set(Math.cos(ang)*d, -4, Math.sin(ang)*d)
       s.add(m)
     }
 
@@ -238,15 +329,23 @@ export class Engine {
   /* ════════ BATTLE SCENE ════════ */
   _buildBattle(){
     const s = this.battleScene = new THREE.Scene()
-    this._sky(s, '#2A5CB0', '#E8D8A8')
-    s.fog = new THREE.Fog(0xD8CCA0, 18, 70)
-    const hemi = new THREE.HemisphereLight(0xBFD8FF, 0x3A5A30, .5); s.add(hemi)
-    const sun = new THREE.DirectionalLight(0xFFD898, 1.45)
-    sun.position.set(-16, 18, 8); sun.castShadow = true
-    sun.shadow.mapSize.set(1024,1024)
+    this._skyDome(s, {
+      zenith:0x2A5CB0, horizon:0xF2D8A0, ground:0xD8CCA0,
+      sunDir:new THREE.Vector3(-16, 14, 8).normalize(),
+      sunColor:0xFFEECC, sunSize:.998, haloSize:.9
+    })
+    s.fog = new THREE.FogExp2(0xD8CCA0, .012)
+    const hemi = new THREE.HemisphereLight(0xBFD8FF, 0x3E5E30, .7); s.add(hemi)
+    const sun = new THREE.DirectionalLight(0xFFD898, 1.9)
+    sun.position.set(-16, 14, 8); sun.castShadow = true
+    sun.shadow.mapSize.set(2048,2048)
+    sun.shadow.bias = -0.0004
+    sun.shadow.normalBias = .02
     const sc2 = sun.shadow.camera
     sc2.left=-25; sc2.right=25; sc2.top=25; sc2.bottom=-25
     s.add(sun)
+    const bounce2 = new THREE.DirectionalLight(0xFFB070, .2)
+    bounce2.position.set(14, 8, -10); s.add(bounce2)
 
     /* arena ground */
     const geo = new THREE.PlaneGeometry(80, 80, 24, 24)
@@ -257,9 +356,34 @@ export class Engine {
       pos.setZ(i, d>10 ? (Math.sin(x*.25)*Math.cos(y*.3)*.8) : 0)
     }
     geo.computeVertexNormals()
-    const ground = new THREE.Mesh(geo, mat(0x4A7E2C, 1))
+    /* vertex-color variation so the arena floor isn't one flat green */
+    {
+      const colors = new Float32Array(pos.count*3)
+      const base = new THREE.Color(0x4A7E2C), dry = new THREE.Color(0x6E8A38), dark = new THREE.Color(0x37641F)
+      const tmp = new THREE.Color()
+      for(let i=0;i<pos.count;i++){
+        const x=pos.getX(i), y=pos.getY(i)
+        const nv = (Math.sin(x*.35+y*.21)+Math.sin(x*.11-y*.4+2.))*.5
+        tmp.copy(base)
+        if(nv>.2) tmp.lerp(dry, (nv-.2)*.9)
+        if(nv<-.2) tmp.lerp(dark, (-nv-.2)*.9)
+        colors[i*3]=tmp.r; colors[i*3+1]=tmp.g; colors[i*3+2]=tmp.b
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    }
+    const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors:true, roughness:.95, metalness:0 }))
     ground.rotation.x = -Math.PI/2; ground.receiveShadow = true
     s.add(ground)
+
+    /* tufts of instanced grass around the arena edge */
+    const arenaPts = []
+    for(let i=0;i<260;i++){
+      const ang=Math.random()*Math.PI*2, dist=7+Math.random()*18
+      arenaPts.push([Math.cos(ang)*dist, 0, Math.sin(ang)*dist-2])
+    }
+    const arenaGrass = grassField(arenaPts, { color:0x4E8A30, height:.7, width:.65 })
+    this.animMats.push(arenaGrass.material)
+    s.add(arenaGrass)
 
     for(let i=0;i<46;i++){
       const ang=Math.random()*Math.PI*2, dist=12+Math.random()*20
@@ -575,13 +699,47 @@ export class Engine {
 
   _ease(k){ return k<.5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2 }
 
-  _sky(scene, top, bottom){
-    const c = document.createElement('canvas'); c.width=2; c.height=256
-    const g = c.getContext('2d')
-    const gr = g.createLinearGradient(0,0,0,256)
-    gr.addColorStop(0, top); gr.addColorStop(1, bottom)
-    g.fillStyle = gr; g.fillRect(0,0,2,256)
-    scene.background = new THREE.CanvasTexture(c)
+  /* shader sky dome: zenith→horizon gradient + visible sun disc with bloom halo */
+  _skyDome(scene, { zenith, horizon, ground, sunDir, sunColor, sunSize=.9985, haloSize=.93 }){
+    const matSky = new THREE.ShaderMaterial({
+      side: THREE.BackSide, depthWrite: false, fog: false,
+      uniforms: {
+        uZenith:  { value: new THREE.Color(zenith) },
+        uHorizon: { value: new THREE.Color(horizon) },
+        uGround:  { value: new THREE.Color(ground) },
+        uSunDir:  { value: sunDir.clone() },
+        uSunCol:  { value: new THREE.Color(sunColor) },
+        uSunSize: { value: sunSize },
+        uHalo:    { value: haloSize },
+      },
+      vertexShader: /* glsl */`
+        varying vec3 vDir;
+        void main(){
+          vDir = normalize(position);
+          vec4 mv = modelViewMatrix * vec4(position, 1.);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: /* glsl */`
+        uniform vec3 uZenith, uHorizon, uGround, uSunDir, uSunCol;
+        uniform float uSunSize, uHalo;
+        varying vec3 vDir;
+        void main(){
+          vec3 d = normalize(vDir);
+          float h = clamp(d.y, -1., 1.);
+          /* below horizon fades to ground haze; above blends horizon→zenith */
+          vec3 col = h < 0.
+            ? mix(uHorizon, uGround, clamp(-h*4., 0., 1.))
+            : mix(uHorizon, uZenith, pow(clamp(h*1.6, 0., 1.), .5));
+          float sd = dot(d, uSunDir);
+          /* wide warm halo + hot disc (HDR values feed the bloom pass) */
+          col += uSunCol * pow(clamp((sd-uHalo)/(1.-uHalo), 0., 1.), 3.) * .55;
+          col += uSunCol * smoothstep(uSunSize, uSunSize + .0008, sd) * 2.4;
+          gl_FragColor = vec4(col, 1.);
+        }`
+    })
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(160, 32, 18), matSky)
+    dome.renderOrder = -1
+    scene.add(dome)
   }
 
   /* ════════ MAIN LOOP ════════ */
@@ -601,6 +759,22 @@ export class Engine {
 
     if(this.mode==='world') this._tickWorld(dt, t)
     else this._tickBattle(dt, t)
+
+    /* animated materials (water ripple, grass wind) */
+    for(const m of this.animMats){ if(m.userData.shader) m.userData.shader.uniforms.uTime.value = t; if(m.uniforms) m.uniforms.uTime.value = t }
+
+    /* render through the post-FX chain */
+    this.renderPass.scene = this.mode==='world' ? this.worldScene : this.battleScene
+    this.renderer.info.autoReset = false
+    this.renderer.info.reset()
+    this.composer.render()
+
+    /* perf probe */
+    this._frames++; this._perfT += dt
+    if(this._perfT >= 1){
+      window.__perf = { fps: Math.round(this._frames/this._perfT), calls: this.renderer.info.render.calls }
+      this._frames = 0; this._perfT = 0
+    }
   }
 
   _tickWorld(dt, t){
@@ -777,8 +951,6 @@ export class Engine {
     } else {
       if(this.waypointGroup.visible) this.waypointGroup.visible = false
     }
-
-    this.renderer.render(this.worldScene, this.camera)
   }
 
   _tickBattle(dt, t){
@@ -860,6 +1032,5 @@ export class Engine {
       this.camera.position.x += (Math.random()-.5)*this.shake*.5
       this.camera.position.y += (Math.random()-.5)*this.shake*.5
     }
-    this.renderer.render(this.battleScene, this.camera)
   }
 }

@@ -10,15 +10,65 @@ export function terrainH(x, z){
        + Math.sin(x*.23+1.7)*Math.cos(z*.19)*0.5
 }
 
-export function buildTerrain(size=140, seg=64){
+/* pseudo-noise for terrain color variation (deterministic, no libs) */
+const n2 = (x, z) => {
+  const v = Math.sin(x*12.9898 + z*78.233) * 43758.5453
+  return v - Math.floor(v)
+}
+const smoothNoise = (x, z) =>
+  ( Math.sin(x*.31+z*.17) + Math.sin(x*.13-z*.29+2.1) + Math.sin(x*.53+z*.41+4.2)*.5 ) / 2.5
+
+/* small repeating grass-detail texture painted on a canvas */
+function grassDetailTexture(){
+  /* near-white noise so it modulates vertex colors without darkening them */
+  const c = document.createElement('canvas'); c.width = c.height = 256
+  const g = c.getContext('2d')
+  g.fillStyle = '#E9E9E9'; g.fillRect(0,0,256,256)
+  for(let i=0;i<9000;i++){
+    const l = 74 + Math.random()*26
+    g.fillStyle = `hsl(${80+Math.random()*30}, ${6+Math.random()*10}%, ${l}%)`
+    g.fillRect(Math.random()*256, Math.random()*256, 1.5, 1.5)
+  }
+  const tex = new THREE.CanvasTexture(c)
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping
+  tex.repeat.set(48, 48)
+  tex.colorSpace = THREE.SRGBColorSpace
+  return tex
+}
+
+export function buildTerrain(size=140, seg=128){
   const geo = new THREE.PlaneGeometry(size, size, seg, seg)
   const pos = geo.attributes.position
+  const colors = new Float32Array(pos.count*3)
+  const grass  = new THREE.Color(0x4F8C33)
+  const grassD = new THREE.Color(0x3A6E26)   // darker patches
+  const grassY = new THREE.Color(0x6E9440)   // dry yellowish patches
+  const dirt   = new THREE.Color(0x8A6430)   // path blend
+  const bank   = new THREE.Color(0x6E7A4A)   // river bank
+  const tmp = new THREE.Color()
   for(let i=0;i<pos.count;i++){
     const x = pos.getX(i), y = pos.getY(i)
     pos.setZ(i, terrainH(x, -y))
+    const wz = -y                                 // world z after -90° X rotation
+    /* macro color variation */
+    const nA = smoothNoise(x, wz), nB = n2(Math.floor(x*.5), Math.floor(wz*.5))
+    tmp.copy(grass)
+    if(nA > .25) tmp.lerp(grassY, Math.min(1,(nA-.25)*1.6)*.55)
+    if(nA < -.25) tmp.lerp(grassD, Math.min(1,(-nA-.25)*1.6)*.6)
+    tmp.offsetHSL(0, 0, (nB-.5)*.045)
+    /* blend dirt along the winding path */
+    const pd = Math.abs(x - Math.sin(wz*.09)*6)
+    if(pd < 2.6) tmp.lerp(dirt, (1 - pd/2.6)*.85)
+    /* mossy bank near the river */
+    const rd = Math.min(Math.abs(x+23.5), Math.abs(x+16.5))
+    if(x > -26 && x < -14 && rd < 2.5) tmp.lerp(bank, (1 - rd/2.5)*.5)
+    colors[i*3]=tmp.r; colors[i*3+1]=tmp.g; colors[i*3+2]=tmp.b
   }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
   geo.computeVertexNormals()
-  const m = new THREE.Mesh(geo, mat(0x4A8A30, 1))
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    map: grassDetailTexture(), vertexColors: true, roughness: .95, metalness: 0
+  }))
   m.rotation.x = -Math.PI/2
   m.receiveShadow = true
   return m
@@ -87,14 +137,151 @@ export function grassTuft(){
 
 export function cloud(){
   const g = new THREE.Group()
-  const m = new THREE.MeshStandardMaterial({ color:0xFFFFFF, roughness:1, flatShading:true })
-  const n = 2+Math.floor(Math.random()*3)
+  const m = new THREE.MeshStandardMaterial({ color:0xFFFFFF, roughness:1, transparent:true, opacity:.88, emissive:0xFFF4E0, emissiveIntensity:.12 })
+  const n = 3+Math.floor(Math.random()*3)
   for(let i=0;i<n;i++){
-    const s = new THREE.Mesh(new THREE.SphereGeometry(.8+Math.random()*.7,6,4), m)
-    s.position.set(i*1.1-(n*.5), Math.random()*.3, 0)
-    s.scale.y = .55; g.add(s)
+    const s = new THREE.Mesh(new THREE.SphereGeometry(.8+Math.random()*.7,10,7), m)
+    s.position.set(i*1.0-(n*.5), Math.random()*.3, (Math.random()-.5)*.6)
+    s.scale.y = .5; g.add(s)
   }
   return g
+}
+
+/* ── ANIMATED WATER (river) ── */
+export function waterMaterial(){
+  const m = new THREE.ShaderMaterial({
+    transparent: true, fog: false,
+    uniforms: {
+      uTime:    { value: 0 },
+      uDeep:    { value: new THREE.Color(0x1E5C8A) },
+      uShallow: { value: new THREE.Color(0x63B2D8) },
+      uSky:     { value: new THREE.Color(0xC8E4F4) },
+      uSunDir:  { value: new THREE.Vector3(.75,.44,.28).normalize() },
+    },
+    vertexShader: /* glsl */`
+      uniform float uTime;
+      varying vec2 vUv;
+      varying vec3 vWorld;
+      void main(){
+        vUv = uv;
+        vec3 p = position;
+        /* soft rolling ripple along the river length */
+        p.z += ( sin(uv.y*70. + uTime*1.6) + sin(uv.y*31. - uTime*1.1 + uv.x*8.) ) * .028;
+        vec4 w = modelMatrix * vec4(p, 1.);
+        vWorld = w.xyz;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: /* glsl */`
+      uniform float uTime;
+      uniform vec3 uDeep, uShallow, uSky, uSunDir;
+      varying vec2 vUv;
+      varying vec3 vWorld;
+      float nz(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float snz(vec2 p){
+        vec2 i = floor(p), f = fract(p);
+        f = f*f*(3.-2.*f);
+        return mix(mix(nz(i), nz(i+vec2(1,0)), f.x), mix(nz(i+vec2(0,1)), nz(i+vec2(1,1)), f.x), f.y);
+      }
+      void main(){
+        /* two scrolling noise layers fake the surface normal */
+        vec2 p1 = vUv*vec2(9., 90.) + vec2(uTime*.22,  uTime*.9);
+        vec2 p2 = vUv*vec2(14., 150.) - vec2(uTime*.13, uTime*.62);
+        float h = snz(p1)*.6 + snz(p2)*.4;
+        vec3 N = normalize(vec3((snz(p1+vec2(.1,0.))-h)*2.2, 1., (snz(p2+vec2(0.,.1))-h)*2.2));
+        vec3 V = normalize(cameraPosition - vWorld);
+        float fres = pow(1. - max(dot(N, V), 0.), 2.4);
+        vec3 col = mix(uDeep, uShallow, h*.55 + .18);
+        col = mix(col, uSky, fres*.75);
+        /* sun glints */
+        vec3 R = reflect(-uSunDir, N);
+        col += vec3(1.4, 1.15, .8) * pow(max(dot(R, V), 0.), 90.) * 1.4;
+        /* soft edge fade into the banks */
+        float edge = smoothstep(0., .14, vUv.x) * smoothstep(1., .86, vUv.x);
+        gl_FragColor = vec4(col, .92*edge + .05);
+      }`
+  })
+  return m
+}
+
+/* ── INSTANCED GRASS FIELD with vertex-shader wind ── */
+let _bladeTex = null
+function bladeTexture(){
+  if(_bladeTex) return _bladeTex
+  const c = document.createElement('canvas'); c.width = 128; c.height = 128
+  const g = c.getContext('2d')
+  g.clearRect(0,0,128,128)
+  for(let i=0;i<10;i++){
+    const bx = 8 + i*12 + (Math.random()-.5)*8
+    const lean = (Math.random()-.5)*26
+    const grad = g.createLinearGradient(0,128,0,10)
+    grad.addColorStop(0, 'rgba(255,255,255,1)')
+    grad.addColorStop(1, 'rgba(225,240,200,1)')
+    g.strokeStyle = grad
+    g.lineWidth = 10 - Math.random()*4
+    g.lineCap = 'round'
+    g.beginPath()
+    g.moveTo(bx, 130)
+    g.quadraticCurveTo(bx + lean*.3, 70, bx + lean, 8 + Math.random()*22)
+    g.stroke()
+  }
+  _bladeTex = new THREE.CanvasTexture(c)
+  _bladeTex.colorSpace = THREE.SRGBColorSpace
+  return _bladeTex
+}
+
+export function grassField(points, { color=0x4E8A30, height=1, width=.8 }={}){
+  /* two crossed quads, bottom-anchored */
+  const mk = ()=>{ const p = new THREE.PlaneGeometry(width, height, 1, 3); p.translate(0, height/2, 0); return p }
+  const a = mk(), b = mk().rotateY(Math.PI/2)
+  const geo = new THREE.BufferGeometry()
+  const pa = a.attributes.position.array, pb = b.attributes.position.array
+  const ua = a.attributes.uv.array, ub = b.attributes.uv.array
+  const na = a.attributes.normal.array, nb = b.attributes.normal.array
+  geo.setAttribute('position', new THREE.Float32BufferAttribute([...pa, ...pb], 3))
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute([...ua, ...ub], 2))
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute([...na, ...nb], 3))
+  const ia = a.index.array, ib = b.index.array
+  geo.setIndex([...ia, ...ib.map(i=>i + pa.length/3)])
+
+  const m = new THREE.MeshStandardMaterial({
+    map: bladeTexture(), color, alphaTest: .45, side: THREE.DoubleSide,
+    roughness: .9, metalness: 0,
+  })
+  m.onBeforeCompile = (shader)=>{
+    shader.uniforms.uTime = { value: 0 }
+    shader.vertexShader = 'uniform float uTime;\nvarying vec2 vGuv;\n' + shader.vertexShader
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', /* glsl */`
+      #include <begin_vertex>
+      vGuv = uv;
+      {
+        float wx = instanceMatrix[3][0], wz = instanceMatrix[3][2];
+        float sway = sin(uTime*1.7 + wx*.55 + wz*.35) + sin(uTime*3.1 + wz*.9)*.35;
+        float bend = uv.y * uv.y * .16;
+        transformed.x += sway * bend;
+        transformed.z += cos(uTime*1.3 + wx*.4) * bend * .6;
+      }`)
+    /* tip-lightening: fake ambient occlusion at the roots */
+    shader.fragmentShader = 'varying vec2 vGuv;\n' + shader.fragmentShader
+    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', /* glsl */`
+      #include <color_fragment>
+      diffuseColor.rgb *= mix(.72, 1.18, vGuv.y);`)
+    m.userData.shader = shader
+  }
+
+  const inst = new THREE.InstancedMesh(geo, m, points.length)
+  const d = new THREE.Object3D()
+  points.forEach(([x,y,z], i)=>{
+    d.position.set(x, y, z)
+    d.rotation.y = Math.random()*Math.PI
+    const sc = .75 + Math.random()*.55
+    d.scale.set(sc, sc*(.8+Math.random()*.5), sc)
+    d.updateMatrix()
+    inst.setMatrixAt(i, d.matrix)
+  })
+  inst.instanceMatrix.needsUpdate = true
+  inst.castShadow = false
+  inst.receiveShadow = true
+  return inst
 }
 
 export function fruit(){
