@@ -265,7 +265,7 @@ export default function App(){
       engineRef.current.startBattle(lead.id, lead.evolved, enemy.id)
       trackEvent('battle_start', { enemy_name: enemy.name, enemy_level: enemy.level })
       setBat({ enemy, isHunter, eHp:enemy.maxHp, pHp:lead.hp, eph:'intro',
-        blog:[], selCage:'basic', busy:false, res:null, pAtk:1, eDef:1 })
+        blog:[], selCage:'basic', busy:false, res:null, pAtk:1, eDef:1, turn:1 })
       setPhase('battle')
       AUDIO.playBattle(isHunter)
     }
@@ -281,7 +281,7 @@ export default function App(){
   const doMove = (mv, mi)=>{
     setBat(b=>{
       if(b.busy || mv.pp<=0) return b
-      return { ...b, busy:true }
+      return { ...b, busy:true, turn:(b.turn||1)+1 }
     })
     const b = bat
     if(b.busy || mv.pp<=0) return
@@ -615,6 +615,7 @@ export default function App(){
 
     {phase==='world' && !cs && !evo && (
       <WorldHUD
+        engine={engineRef.current}
         player={player} party={party} coins={coins} xp={xp} level={level} tip={tip} muted={muted}
         questIdx={questIdx} questExpanded={questExpanded}
         onToggleQuestExpanded={() => setQuestExpanded(!questExpanded)}

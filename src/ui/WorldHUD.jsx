@@ -1,10 +1,67 @@
 /* ── WorldHUD ── */
-import React from 'react'
+import React, { useRef, useEffect } from 'react'
 import { QUESTS, TIPS, pct } from '../game/data.js'
 import { Icon, animalIcon } from './icons.jsx'
 import { Bar, hpc } from './kit.jsx'
 
+/* circular canvas minimap fed by engine.getMinimapInfo() */
+function Minimap({ engine }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!engine || !ref.current) return
+    const cv = ref.current, ctx = cv.getContext('2d')
+    const S = 104, R = S/2
+    cv.width = S*2; cv.height = S*2
+    ctx.scale(2, 2)
+    let raf
+    const draw = () => {
+      raf = requestAnimationFrame(draw)
+      const info = engine.getMinimapInfo ? engine.getMinimapInfo() : null
+      if (!info) return
+      const k = (R-6) / info.radius                     // world→px
+      const cx = R, cy = R
+      ctx.clearRect(0, 0, S, S)
+      /* terrain disc */
+      ctx.fillStyle = '#1D3A22'
+      ctx.beginPath(); ctx.arc(cx, cy, R-2, 0, Math.PI*2); ctx.fill()
+      /* river band */
+      ctx.fillStyle = 'rgba(90,160,210,.75)'
+      ctx.fillRect(cx + info.river.x*k - info.river.w*k/2, 4, info.river.w*k, S-8)
+      /* grass encounter zones */
+      for (const z of info.zones) {
+        ctx.fillStyle = 'rgba(120,200,90,.4)'
+        ctx.beginPath(); ctx.arc(cx + z.x*k, cy + z.z*k, Math.max(3, z.r*k), 0, Math.PI*2); ctx.fill()
+      }
+      /* wandering deer */
+      ctx.fillStyle = 'rgba(230,200,150,.9)'
+      ctx.beginPath(); ctx.arc(cx + info.deer.x*k, cy + info.deer.z*k, 2, 0, Math.PI*2); ctx.fill()
+      /* waypoint */
+      if (info.waypoint) {
+        ctx.fillStyle = '#F5C430'
+        ctx.beginPath(); ctx.arc(cx + info.waypoint.x*k, cy + info.waypoint.z*k, 3.4, 0, Math.PI*2); ctx.fill()
+      }
+      /* player arrow */
+      const px = cx + info.player.x*k, py = cy + info.player.z*k
+      ctx.save()
+      ctx.translate(px, py)
+      ctx.rotate(-info.player.yaw + Math.PI)
+      ctx.fillStyle = '#FFFFFF'
+      ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(3.6, 4); ctx.lineTo(-3.6, 4); ctx.closePath(); ctx.fill()
+      ctx.restore()
+    }
+    draw()
+    return () => cancelAnimationFrame(raf)
+  }, [engine])
+  return (
+    <div className="minimap">
+      <canvas ref={ref} />
+      <div className="region">NORTHEAST FORESTS</div>
+    </div>
+  )
+}
+
 export function WorldHUD({
+  engine,
   player, party, coins, xp, level, tip, muted,
   questIdx, questExpanded, onToggleQuestExpanded,
   wpScreen,
@@ -14,6 +71,10 @@ export function WorldHUD({
   const lead = party[0]
 
   return (<>
+    {/* ── VIGNETTE + MINIMAP ── */}
+    <div className="world-vignette" />
+    <Minimap engine={engine} />
+
     {/* ── QUEST HUD ── */}
     {QUESTS && QUESTS[questIdx] && (
       <div style={{ position:'absolute', top: 50, left:'50%', transform:'translateX(-50%)', zIndex: 10, display:'flex', flexDirection:'column', alignItems:'center' }}>
@@ -80,16 +141,18 @@ export function WorldHUD({
       </div>
     )}
 
-    {/* ── TIP ── */}
-    <div className="hud ov" style={{ top:62, right:14, fontSize:11, color:'var(--tx2)', maxWidth:200, fontStyle:'italic' }}>
+    {/* ── TIP (below minimap) ── */}
+    <div className="hud ov" style={{ top:196, right:14, fontSize:11, color:'var(--tx2)', maxWidth:150, fontStyle:'italic' }}>
       <Icon name="bulb" size={11} /> {TIPS[tip]}
     </div>
 
-    {/* ── NAV FABS ── */}
+    {/* ── NAV RAIL — framed squares with labels ── */}
     <div className="whud-nav">
-      {[['team','team'],['bag','bag'],['map','map'],['scientists','lab'],['settings','gear']].map(([id,ic]) => (
+      {[['team','team','Team'],['bag','bag','Bag'],['map','map','Map'],['scientists','lab','Allies'],['settings','gear','Menu']].map(([id,ic,label]) => (
         <button key={id} className="nav-fab" onClick={() => onPhase(id)}>
-          <Icon name={ic} size={22} />{id==='team'&&party.some(a=>a.hp<a.maxHp)&&<span className="dot"/>}
+          <Icon name={ic} size={19} />
+          <span className="fab-label">{label}</span>
+          {id==='team'&&party.some(a=>a.hp<a.maxHp)&&<span className="dot"/>}
         </button>
       ))}
     </div>

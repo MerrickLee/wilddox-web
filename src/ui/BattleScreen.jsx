@@ -6,6 +6,15 @@ import { Bar, Badge, Btn, Hearts, hpc } from './kit.jsx'
 
 export function BattleScreen({ bat, lead, party, cages, doMove, doBait, doThrow, fleeBattle, endBattle, doSwitch, setBat }) {
   return (<>
+    {/* ── CINEMATIC LETTERBOX ── */}
+    <div className="letterbox top on" />
+    <div className="letterbox bot on" />
+
+    {/* ── TURN COUNTER ── */}
+    {bat.eph !== 'result' && (
+      <div className="turn-chip">TURN<b>{String(bat.turn || 1).padStart(2,'0')}</b></div>
+    )}
+
     {/* ── ENEMY BAR ── */}
     <div className="bat-top">
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -79,7 +88,18 @@ export function BattleScreen({ bat, lead, party, cages, doMove, doBait, doThrow,
 
     {/* ── CAPTURE ── */}
     {bat.eph === 'capture' && (
-      <div className="bat-moves" style={{ width:'min(230px,60vw)' }}>
+      <div className="bat-moves" style={{ width:'min(260px,66vw)' }}>
+        {(() => {
+          const sel = cages.find(c => c.id === bat.selCage) || cages[0]
+          const cr = calcCatch(bat.eHp, bat.enemy.maxHp, bat.enemy.cr || 50, sel.bonus)
+          return (
+            <div className="catch-card">
+              <div className="cc-label">CAPTURE CHANCE</div>
+              <div className="cc-val" style={{ color: cr >= 60 ? 'var(--green3)' : cr >= 35 ? 'var(--gold3)' : '#FF9090' }}>{cr}%</div>
+              <div style={{ fontSize:10, color:'var(--tx2)' }}>Weaken it to raise the odds</div>
+            </div>
+          )
+        })()}
         {cages.map(cage => {
           const cr = calcCatch(bat.eHp, bat.enemy.maxHp, bat.enemy.cr || 50, cage.bonus)
           return (
@@ -91,10 +111,12 @@ export function BattleScreen({ bat, lead, party, cages, doMove, doBait, doThrow,
             </button>
           )
         })}
-        <Btn variant="blue" disabled={bat.busy} style={{ padding:'11px' }} onClick={doThrow}>
-          <Icon name="trap" size={14} /> THROW!
-        </Btn>
-        <button className="mv" disabled={bat.busy} onClick={() => setBat(b => ({ ...b, eph:'battle' }))}>
+        <div className="mv-wide">
+          <Btn variant="gold" disabled={bat.busy} style={{ padding:'11px' }} onClick={doThrow}>
+            <Icon name="trap" size={14} /> THROW CAGE
+          </Btn>
+        </div>
+        <button className="mv mv-wide" disabled={bat.busy} onClick={() => setBat(b => ({ ...b, eph:'battle' }))}>
           <div className="mv-name">← Back</div></button>
       </div>
     )}
