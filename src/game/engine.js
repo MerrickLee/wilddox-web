@@ -249,6 +249,44 @@ export class Engine {
       s.add(c); this.clouds.push(c)
     }
 
+    /* drifting pollen motes in the sunlight */
+    {
+      const n = this.lowFX ? 60 : 140
+      const pGeo = new THREE.BufferGeometry()
+      const pPos = new Float32Array(n*3)
+      for(let i=0;i<n;i++){
+        pPos[i*3]   = (Math.random()-.5)*70
+        pPos[i*3+1] = .5 + Math.random()*6
+        pPos[i*3+2] = (Math.random()-.5)*70
+      }
+      pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3))
+      this.pollen = new THREE.Points(pGeo, new THREE.PointsMaterial({
+        color:0xFFEEC0, size:.09, transparent:true, opacity:.55,
+        blending:THREE.AdditiveBlending, depthWrite:false, sizeAttenuation:true
+      }))
+      s.add(this.pollen)
+    }
+
+    /* circling hawks overhead */
+    this.skyBirds = []
+    for(let i=0;i<2;i++){
+      const hk = buildAnimal('hawk')
+      hk.scale.setScalar(.7)
+      hk.userData.orbit = { r: 18+i*9, h: 16+i*4, ph: i*Math.PI, sp: .14+i*.04 }
+      s.add(hk); this.skyBirds.push(hk)
+    }
+
+    /* butterflies near the flower patches */
+    this.butterflies = []
+    const bfCols = [0xF0D040, 0xE06080, 0x80A8F0]
+    for(let i=0;i<6;i++){
+      const bf = new THREE.Mesh(new THREE.PlaneGeometry(.22,.18),
+        new THREE.MeshBasicMaterial({ color:bfCols[i%3], side:THREE.DoubleSide, transparent:true, opacity:.95 }))
+      const bx=(Math.random()-.5)*50, bz=(Math.random()-.5)*50
+      bf.userData.home = { x:bx, z:bz, ph: Math.random()*Math.PI*2 }
+      s.add(bf); this.butterflies.push(bf)
+    }
+
     /* ambient deer that wanders */
     this.ambDeer = buildAnimal('deer')
     this.ambDeer.scale.setScalar(.55)
@@ -314,6 +352,19 @@ export class Engine {
     const dist = Math.round(this.player.position.distanceTo(this.waypointGroup.position))
     
     return { visible:true, angle, dist }
+  }
+
+  /* data for the HUD minimap canvas: positions in world units, radius = world bounds */
+  getMinimapInfo(){
+    return {
+      radius: WORLD_RADIUS,
+      player: { x: this.player.position.x, z: this.player.position.z, yaw: this.player.rotation.y },
+      zones: this.grassZones.map(z=>({ x:z.x, z:z.z, r:z.r })),
+      waypoint: this.waypointGroup.visible
+        ? { x: this.waypointGroup.position.x, z: this.waypointGroup.position.z } : null,
+      river: { x:-20, w:6 },
+      deer: { x: this.ambDeer.position.x, z: this.ambDeer.position.z },
+    }
   }
 
   setCharacter({ jacket, name }={}){
@@ -569,6 +620,14 @@ export class Engine {
       cage.position.set(E.position.x, .35, 0)
       cage.scale.setScalar(1)
       if(success){
+        /* gold sparkle burst on successful capture */
+        for(let i=0;i<16 && this.battleParticles.length<40;i++){
+          const p = new THREE.Mesh(new THREE.SphereGeometry(.05,4,4),
+            new THREE.MeshBasicMaterial({ color:0xFFD860, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }))
+          p.position.set(E.position.x+(Math.random()-.5)*1.2, .6+Math.random()*1.4, (Math.random()-.5)*1.2)
+          p.userData = { life: .9, type:'gold', dy: .8+Math.random()*1.2 }
+          this.battleScene.add(p); this.battleParticles.push(p)
+        }
         /* shrink enemy into cage */
         this._tween(.8, k=>{
           E.scale.setScalar(Math.max(.01,(1-k)))
@@ -892,14 +951,49 @@ export class Engine {
     /* idle breathe */
     this.player.position.y = terrainH(this.player.position.x, this.player.position.z) + Math.abs(Math.sin(t*1.3))*.012
 
-    /* third-person follow camera */
+    /* third-person follow camera with subtle breathing sway */
     const px = this.player.position.x, pz = this.player.position.z
-    const camTarget = new THREE.Vector3(px, this.player.position.y+2.6, pz+7.2)
+    const camTarget = new THREE.Vector3(
+      px + Math.sin(t*.32)*.12,
+      this.player.position.y+2.6 + Math.sin(t*.47)*.06,
+      pz+7.2)
     this.camera.position.lerp(camTarget, Math.min(1, dt*4))
     this.camera.lookAt(px, this.player.position.y+1.4, pz-3)
 
     /* clouds drift */
     this.clouds.forEach((c,i)=>{ c.position.x += dt*(0.4+i*.05); if(c.position.x>70) c.position.x=-70 })
+
+    /* pollen drift */
+    if(this.pollen){
+      const pp = this.pollen.geometry.attributes.position
+      for(let i=0;i<pp.count;i++){
+        let py = pp.getY(i) + dt*.18
+        pp.setX(i, pp.getX(i) + Math.sin(t*.5+i)*dt*.3)
+        if(py > 7) py = .4
+        pp.setY(i, py)
+      }
+      pp.needsUpdate = true
+    }
+
+    /* hawks circle */
+    for(const hk of this.skyBirds){
+      const o = hk.userData.orbit
+      const a = t*o.sp + o.ph
+      hk.position.set(Math.cos(a)*o.r, o.h + Math.sin(t*.6+o.ph)*1.2, Math.sin(a)*o.r)
+      hk.rotation.y = -a
+      if(hk.userData.wings) hk.userData.wings.forEach((w,i)=>{ w.rotation.z = .4+Math.sin(t*7+i)*.35 })
+    }
+
+    /* butterflies flutter */
+    for(const bf of this.butterflies){
+      const hm = bf.userData.home
+      bf.position.set(
+        hm.x + Math.sin(t*.7+hm.ph)*1.6,
+        terrainH(hm.x, hm.z) + .6 + Math.sin(t*2.1+hm.ph)*.25,
+        hm.z + Math.cos(t*.55+hm.ph)*1.6)
+      bf.rotation.y = t*.7+hm.ph
+      bf.scale.x = .6 + Math.abs(Math.sin(t*10+hm.ph))*.5   // wing flap
+    }
 
     /* ambient deer wander */
     this.deerTimer -= dt
