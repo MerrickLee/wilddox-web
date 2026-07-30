@@ -62,7 +62,7 @@ function Minimap({ engine }) {
 
 export function WorldHUD({
   engine,
-  player, party, coins, xp, level, tip, muted,
+  player, party, coins, xp, level, tip, muted, flags,
   questIdx, questExpanded, onToggleQuestExpanded,
   wpScreen,
   joy, joyStart, joyMove, joyEnd,
@@ -89,7 +89,16 @@ export function WorldHUD({
         {questExpanded && (
           <div className="panel fade-in" style={{ marginTop: 8, padding: 12, width: 280, background:'rgba(16,28,48,0.95)', border:'1px solid rgba(255,255,255,0.1)' }}>
             <div style={{ fontSize:12, marginBottom:6 }}>{QUESTS[questIdx].desc}</div>
-            <div style={{ fontSize:11, color:'var(--gold3)' }}><Icon name="bulb" size={11} /> {QUESTS[questIdx].hint}</div>
+            <div style={{ fontSize:11, color:'var(--gold3)', marginBottom:8 }}><Icon name="bulb" size={11} /> {QUESTS[questIdx].hint}</div>
+            
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4 }}>
+               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--blue3)', marginBottom: 4 }}>Daily Objective: Field Research</div>
+               {flags?.dailyObjectiveDone ? (
+                 <div style={{ fontSize: 11, color: 'var(--green)' }}>✓ Completed (Return tomorrow)</div>
+               ) : (
+                 <div style={{ fontSize: 11, color: 'var(--tx2)' }}>Win 3 Battles ({flags?.dailyWins || 0}/3)</div>
+               )}
+            </div>
           </div>
         )}
       </div>
@@ -164,10 +173,19 @@ export function WorldHUD({
       <div className="joy-knob" style={{ transform:`translate(calc(-50% + ${joy.dx}px), calc(-50% + ${joy.dy}px))` }}/>
     </div>
 
-    {/* ── MOVE HINT ── */}
-    <div className="ov" style={{ bottom:170, left:'50%', transform:'translateX(-50%)', fontSize:11,
-      color:'rgba(255,255,255,.45)', textAlign:'center', pointerEvents:'none', whiteSpace:'nowrap' }}>
-      WASD / drag joystick to move · walk into tall grass to find animals
-    </div>
+    {/* ── TUTORIAL / HINTS ── */}
+    {flags?.tutorialStep === 1 ? (
+      <div className="ov fade-in" style={{ bottom:150, left:'50%', transform:'translateX(-50%)', 
+        background: 'rgba(212,175,55,0.9)', color: '#000', padding: '12px 24px', 
+        borderRadius: 30, fontWeight: 700, pointerEvents: 'none', boxShadow: '0 0 20px rgba(212,175,55,0.4)',
+        textAlign: 'center', whiteSpace: 'nowrap' }}>
+        TUTORIAL: Walk into the tall grass to find your first Wilddox!
+      </div>
+    ) : (
+      <div className="ov" style={{ bottom:170, left:'50%', transform:'translateX(-50%)', fontSize:11,
+        color:'rgba(255,255,255,.45)', textAlign:'center', pointerEvents:'none', whiteSpace:'nowrap' }}>
+        WASD / drag joystick to move · walk into tall grass to find animals
+      </div>
+    )}
   </>)
 }

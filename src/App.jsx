@@ -7,6 +7,7 @@ import { ANIMALS, WILD, HUNTER_ANIMAL, CAGES, SCIENTISTS, REGIONS, TIPS, STORY, 
 
 /* ── UI components ── */
 import { TitleScreen } from './ui/TitleScreen.jsx'
+import { CharacterScreen } from './ui/CharacterScreen.jsx'
 import { StarterScreen } from './ui/StarterScreen.jsx'
 import { WorldHUD } from './ui/WorldHUD.jsx'
 import { BattleScreen } from './ui/BattleScreen.jsx'
@@ -20,27 +21,21 @@ import { EvolutionOverlay } from './ui/EvolutionOverlay.jsx'
 
 const SAVE_KEY = 'wilddox_save_v1'
 
-export const trackEvent = (eventName, eventParams = {}) => {
-  if (typeof window !== 'undefined' && window.gtag) {
-    window.gtag('event', eventName, eventParams)
-  } else if (typeof window !== 'undefined' && window.dataLayer) {
-    window.dataLayer.push({ event: eventName, ...eventParams })
-  }
-}
+import { initAnalytics, trackEvent, trackPageView } from './analytics.js'
 
 export default function App(){
   const canvasRef = useRef(null)
   const engineRef = useRef(null)
 
   /* ── persistent game state ── */
-  const [phase, setPhase] = useState('title')      // title | starter | world | battle | team | bag | map | scientists
+  const [phase, setPhase] = useState('title')      // title | character-select | starter | world | battle | team | bag | map | scientists
   const [player, setPlayer] = useState({ name:'', emoji:'' })
   const [party, setParty] = useState([])
   const [coins, setCoins] = useState(120)
   const [xp, setXp] = useState(0)
   const [level, setLevel] = useState(1)
   const [cages, setCages] = useState(dc(CAGES))
-  const [flags, setFlags] = useState({ betrayal:false, firstHunter:false, encounters:0 })
+  const [flags, setFlags] = useState({ betrayal:false, firstHunter:false, encounters:0, firstBattleWin:false, firstCatchSuccess:false, firstQuestComplete:false, tutorialStep: 0, lastPlayedDate: '', dailyObjectiveDone: false })
   const [chosen, setChosen] = useState(null)
   const [tip, setTip] = useState(0)
   const [notif, setNotif] = useState('')
@@ -51,7 +46,6 @@ export default function App(){
   const [questExpanded, setQuestExpanded] = useState(false)
   const [questBanner, setQuestBanner] = useState(null)
   const [wpScreen, setWpScreen] = useState({ visible: false })
-  const [startOverlay, setStartOverlay] = useState(true)
 
   /* ── cutscene ── */
   const [cs, setCs] = useState(null)     // { key, line, cb }
@@ -64,7 +58,7 @@ export default function App(){
   
   /* ── screen tracking ── */
   useEffect(() => {
-    trackEvent('screen_view', { screen_name: phase })
+    trackPageView('/' + phase)
   }, [phase])
 
   /* ── battle hp states ── */
@@ -87,6 +81,7 @@ export default function App(){
 
   /* ── engine boot ── */
   useEffect(()=>{
+    initAnalytics()
     const eng = new Engine(canvasRef.current, {
       onEncounter: () => startEncounterRef.current && startEncounterRef.current(),
       onHealItem: () => healItemRef.current && healItemRef.current()
@@ -114,7 +109,27 @@ export default function App(){
       if(!raw) return false
       const s = JSON.parse(raw)
       setPlayer(s.player); setParty(s.party); setCoins(s.coins); setXp(s.xp)
-      setLevel(s.level); setCages(s.cages); setFlags(s.flags)
+      setLevel(s.level); setCages(s.cages); 
+      
+      const defaultFlags = { betrayal:false, firstHunter:false, encounters:0, firstBattleWin:false, firstCatchSuccess:false, firstQuestComplete:false, tutorialStep: -1, lastPlayedDate: '', dailyObjectiveDone: false };
+      
+      if (s.flags && s.flags.tutorialStep === undefined) {
+         s.flags.tutorialStep = -1; // Legacy saves skip tutorial
+      }
+      
+      const mergedFlags = { ...defaultFlags, ...(s.flags || {}) };
+      
+      const today = new Date().toDateString();
+      if (mergedFlags.lastPlayedDate !== today) {
+         mergedFlags.lastPlayedDate = today;
+         mergedFlags.dailyObjectiveDone = false;
+         mergedFlags.dailyWins = 0;
+         if (s.player && s.player.name) {
+           // Fire event for objective reset if we want, or just wait for view
+         }
+      }
+      setFlags(mergedFlags)
+
       if(s.questIdx !== undefined) setQuestIdx(s.questIdx)
       return s
     }catch(e){ return false }
@@ -129,6 +144,10 @@ export default function App(){
     
     if(!questBanner && q.check({ player, party, coins, xp, level, cages, flags })){
       AUDIO.levelup()
+      if (!flags.firstQuestComplete) {
+        trackEvent('first_quest_complete', { quest_title: q.title })
+        setFlags(f => ({ ...f, firstQuestComplete: true }))
+      }
       trackEvent('quest_complete', { quest_title: q.title })
       setQuestBanner({ type: 'COMPLETE', title: q.title })
       setTimeout(() => {
@@ -192,8 +211,19 @@ export default function App(){
   }, [])
 
   /* ── title actions ── */
+  const onPlayClicked = () => {
+    AUDIO.init()
+    trackEvent('play_clicked')
+    setPhase('character-select')
+  }
+
   const newGame = async (name, emoji, jacket)=>{
+    trackEvent('character_selected', { character_id: name })
+    trackEvent('new_game_selected')
     trackEvent('game_start', { name, emoji, jacket, starter: jacket===0x9A3A20?'fox':'wolf' })
+    
+    setFlags(f => ({...f, lastPlayedDate: new Date().toDateString(), dailyObjectiveDone: false, dailyWins: 0, tutorialStep: 1}))
+    
     await AUDIO.init(); AUDIO.click()
     setPlayer({ name, emoji })
     engineRef.current.setCharacter({ jacket, name })
@@ -201,10 +231,12 @@ export default function App(){
     startCS('c1')
   }
   const continueGame = async ()=>{
+    trackEvent('continue_selected')
     await AUDIO.init(); AUDIO.click()
     const s = loadSave()
     if(!s) return
-    trackEvent('game_load', { level: s.level || 1, coins: s.coins })
+    trackEvent('session_resume')
+    trackEvent('game_start', { level: s.level || 1, coins: s.coins })
     const jacket = s.player.name === 'Maisey' ? 0x2A6A80 : 0x9A3A20
     engineRef.current.setCharacter({ jacket, name: s.player.name })
     setPhase('world')
@@ -256,10 +288,20 @@ export default function App(){
       return
     }
     AUDIO.encounter()
-    const isHunter = Math.random() < .15
+    const isTutorial = flags.tutorialStep === 1;
+    const isHunter = isTutorial ? false : Math.random() < .15;
+
     const beginBattle = ()=>{
-      const enemy = isHunter ? dc(HUNTER_ANIMAL) :
-        dc((party.length>=6 ? WILD.filter(a=>a.maxHp<=55) : WILD)[ri(0, (party.length>=6 ? WILD.filter(a=>a.maxHp<=55) : WILD).length-1)])
+      let enemyBase;
+      if (isTutorial) {
+        enemyBase = WILD.find(a => a.id === 'rabbit');
+        trackEvent('tutorial_step_completed', { step_id: 'find_animal', step_number: 1, character_id: player.name })
+        setFlags(f => ({ ...f, tutorialStep: 2 }))
+      } else {
+        enemyBase = isHunter ? HUNTER_ANIMAL : (party.length>=6 ? WILD.filter(a=>a.maxHp<=55) : WILD)[ri(0, (party.length>=6 ? WILD.filter(a=>a.maxHp<=55) : WILD).length-1)];
+      }
+      
+      const enemy = dc(enemyBase)
       enemy.hp = enemy.maxHp
       const lead = party[0]
       engineRef.current.startBattle(lead.id, lead.evolved, enemy.id)
@@ -288,6 +330,10 @@ export default function App(){
     const lead = party[0]
     const eng = engineRef.current
     trackEvent('battle_move', { move_name: mv.name })
+    if (flags.tutorialStep === 2) {
+      trackEvent('tutorial_step_completed', { step_id: 'use_move', step_number: 2, character_id: player.name })
+      setFlags(f => ({ ...f, tutorialStep: 3 }))
+    }
     /* decrement PP */
     setParty(p=>{
       const np = dc(p); np[0].moves[mi].pp = Math.max(0, np[0].moves[mi].pp-1); return np
@@ -359,6 +405,10 @@ export default function App(){
             if(nE<=0){
               nb.eph='animating_victory'
               nb.res={ ok:true, msg: x.isHunter ? 'Hunter defeated! They fled.' : `${x.enemy.name} is exhausted!` }
+              if (!flags.firstBattleWin) {
+                trackEvent('first_battle_win', { enemy_name: x.enemy.name })
+                setFlags(f => ({ ...f, firstBattleWin: true }))
+              }
               trackEvent('battle_win', { enemy_name: x.enemy.name })
               eng.onDefeat('enemy')
               AUDIO.bark('victory')
@@ -400,13 +450,24 @@ export default function App(){
     if(!cage || cage.n<=0){ notify('No cages of that type left!'); return }
     setCages(cs=>cs.map(c=>c.id===cage.id?{ ...c, n:c.n-1 }:c))
     trackEvent('catch_attempt', { cage_type: cage.name, enemy_name: b.enemy.name })
-    const cp = calcCatch(b.eHp, b.enemy.maxHp, b.enemy.cr||50, cage.bonus)
-    const roll = ri(1,100)
+    const isTutorialCapture = flags.tutorialStep === 3;
+    const cp = isTutorialCapture ? 100 : calcCatch(b.eHp, b.enemy.maxHp, b.enemy.cr||50, cage.bonus)
+    const roll = isTutorialCapture ? 1 : ri(1,100)
     const caught = roll <= cp
+    
+    if (isTutorialCapture && caught) {
+      trackEvent('tutorial_step_completed', { step_id: 'catch_animal', step_number: 3, character_id: player.name })
+      setFlags(f => ({ ...f, tutorialStep: 4 }))
+    }
+
     setBat(x=>({ ...x, busy:true }))
     AUDIO.cage()
     engineRef.current.playCageThrow(caught, ()=>{ AUDIO.hit() }, ()=>{
       if(caught){
+        if (!flags.firstCatchSuccess) {
+          trackEvent('first_catch_success', { enemy_name: b.enemy.name })
+          setFlags(f => ({ ...f, firstCatchSuccess: true }))
+        }
         trackEvent('catch_success', { enemy_name: b.enemy.name })
         AUDIO.capture()
         if(party.length < 6){
@@ -445,6 +506,26 @@ export default function App(){
         trackEvent('player_levelup', { new_level: nl })
       }
       else notify(`+${xg} XP · +${cg}🪙`)
+      
+      setFlags(f => {
+         const next = { ...f };
+         if (!next.dailyObjectiveDone) {
+            next.dailyWins = (next.dailyWins || 0) + 1;
+            if (next.dailyWins >= 3) {
+               next.dailyObjectiveDone = true;
+               trackEvent('daily_objective_completed', { objective_id: 'field_research_3_wins' })
+               setTimeout(() => {
+                 setCoins(c => c + 150);
+                 setParty(pp => pp.map(a => ({...a, bond: Math.min(100, a.bond + 20)})));
+                 trackEvent('daily_reward_claimed', { reward: '150_coins_20_bond' });
+                 AUDIO.levelup();
+                 if (notify) notify('Field Research Complete! +150🪙 & Bond Up!', 4000);
+               }, 1000);
+            }
+         }
+         return next;
+      })
+
       /* lead gains */
       setParty(p=>{
         const np = dc(p)
@@ -590,23 +671,12 @@ export default function App(){
   <div className="app">
     <canvas ref={canvasRef} className="gl" />
 
-    {startOverlay && (
-      <div 
-        className="fade-in" 
-        style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.85)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', color:'var(--gold)', cursor:'pointer', fontSize:24, fontFamily:'var(--ft)' }}
-        onClick={() => {
-           AUDIO.init().then(() => {
-             setStartOverlay(false)
-             if(phase === 'title') AUDIO.playTitle()
-           })
-        }}
-      >
-        TAP TO ENTER
-      </div>
+    {phase==='title' && (
+      <TitleScreen hasSave={hasSave} onNewGame={onPlayClicked} onContinue={continueGame} muted={muted} onMuteToggle={() => { const m = AUDIO.toggleMute(); setMuted(m) }} />
     )}
 
-    {phase==='title' && (
-      <TitleScreen hasSave={hasSave} onNewGame={newGame} onContinue={continueGame} />
+    {phase==='character-select' && (
+      <CharacterScreen onConfirm={newGame} onBack={() => { AUDIO.click(); setPhase('title') }} />
     )}
 
     {phase==='starter' && !cs && (
@@ -616,7 +686,7 @@ export default function App(){
     {phase==='world' && !cs && !evo && (
       <WorldHUD
         engine={engineRef.current}
-        player={player} party={party} coins={coins} xp={xp} level={level} tip={tip} muted={muted}
+        player={player} party={party} coins={coins} xp={xp} level={level} tip={tip} muted={muted} flags={flags}
         questIdx={questIdx} questExpanded={questExpanded}
         onToggleQuestExpanded={() => setQuestExpanded(!questExpanded)}
         wpScreen={wpScreen}
@@ -639,7 +709,7 @@ export default function App(){
 
     {phase==='battle' && bat && !evo && (
       <BattleScreen
-        bat={bat} lead={lead} party={party} cages={cages}
+        bat={bat} lead={lead} party={party} cages={cages} flags={flags}
         doMove={doMove} doBait={doBait} doThrow={doThrow}
         fleeBattle={fleeBattle} endBattle={endBattle} doSwitch={doSwitch}
         setBat={setBat}

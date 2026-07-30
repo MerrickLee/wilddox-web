@@ -4,7 +4,7 @@ import { pct, calcCatch } from '../game/data.js'
 import { Icon, animalIcon } from './icons.jsx'
 import { Bar, Badge, Btn, Hearts, hpc } from './kit.jsx'
 
-export function BattleScreen({ bat, lead, party, cages, doMove, doBait, doThrow, fleeBattle, endBattle, doSwitch, setBat }) {
+export function BattleScreen({ bat, lead, party, cages, doMove, doBait, doThrow, fleeBattle, endBattle, doSwitch, setBat, flags }) {
   return (<>
     {/* ── CINEMATIC LETTERBOX ── */}
     <div className="letterbox top on" />
@@ -36,8 +36,9 @@ export function BattleScreen({ bat, lead, party, cages, doMove, doBait, doThrow,
 
     {/* ── INTRO CHOICES ── */}
     {bat.eph === 'intro' && (
-      <div className="bat-moves">
-        <button className="mv" onClick={() => setBat(b => ({ ...b, eph:'battle' }))}>
+      <div className="bat-moves" style={{ position: 'relative' }}>
+        {flags?.tutorialStep === 2 && <div className="tut-pointer fade-in" style={{position:'absolute', top:-30, color:'var(--gold)', fontWeight:700, fontSize:14}}>↑ Select Battle</div>}
+        <button className="mv" onClick={() => setBat(b => ({ ...b, eph:'battle' }))} style={{ borderColor: flags?.tutorialStep === 2 ? 'var(--gold)' : '' }}>
           <div className="mv-name"><Icon name="sword" size={13} /> Battle</div></button>
         {!bat.isHunter && <button className="mv" onClick={() => setBat(b => ({ ...b, eph:'capture' }))}>
           <div className="mv-name"><Icon name="trap" size={13} /> Cage</div></button>}
@@ -68,9 +69,10 @@ export function BattleScreen({ bat, lead, party, cages, doMove, doBait, doThrow,
 
     {/* ── MOVES ── */}
     {bat.eph === 'battle' && (
-      <div className="bat-moves">
+      <div className="bat-moves" style={{ position: 'relative' }}>
+        {flags?.tutorialStep === 2 && <div className="tut-pointer fade-in" style={{position:'absolute', top:-30, color:'var(--gold)', fontWeight:700, fontSize:14}}>↑ Use an attack to weaken it!</div>}
         {lead.moves.map((m, i) => (
-          <button key={m.name} className="mv" disabled={bat.busy || m.pp <= 0} onClick={() => doMove(m, i)}>
+          <button key={m.name} className="mv" disabled={bat.busy || m.pp <= 0} onClick={() => doMove(m, i)} style={{ borderColor: (flags?.tutorialStep === 2 && i===0) ? 'var(--gold)' : '' }}>
             <div className="mv-name"><Icon name={m.icon} size={13} /> {m.name}</div>
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
               <div className="bw" style={{ flex:1, height:3 }}>
@@ -80,7 +82,8 @@ export function BattleScreen({ bat, lead, party, cages, doMove, doBait, doThrow,
             </div>
           </button>
         ))}
-        {!bat.isHunter && <button className="mv" disabled={bat.busy} onClick={() => setBat(b => ({ ...b, eph:'capture' }))}>
+        {flags?.tutorialStep === 3 && <div className="tut-pointer fade-in" style={{position:'absolute', top:-30, color:'var(--blue3)', fontWeight:700, fontSize:14}}>↑ Now try to catch it!</div>}
+        {!bat.isHunter && <button className="mv" disabled={bat.busy} onClick={() => setBat(b => ({ ...b, eph:'capture' }))} style={{ borderColor: flags?.tutorialStep === 3 ? 'var(--blue)' : '' }}>
           <div className="mv-name" style={{ color:'var(--blue3)' }}><Icon name="trap" size={13} /> Cage</div></button>}
         <button className="mv" disabled={bat.busy} onClick={fleeBattle}><div className="mv-name"><Icon name="flee" size={13} /> Flee</div></button>
       </div>
@@ -111,7 +114,8 @@ export function BattleScreen({ bat, lead, party, cages, doMove, doBait, doThrow,
             </button>
           )
         })}
-        <div className="mv-wide">
+        <div className="mv-wide" style={{ position:'relative' }}>
+          {flags?.tutorialStep === 3 && <div className="tut-pointer fade-in" style={{position:'absolute', top:-30, left:'50%', transform:'translateX(-50%)', color:'var(--gold)', fontWeight:700, fontSize:14}}>↑ Guaranteed catch!</div>}
           <Btn variant="gold" disabled={bat.busy} style={{ padding:'11px' }} onClick={doThrow}>
             <Icon name="trap" size={14} /> THROW CAGE
           </Btn>
