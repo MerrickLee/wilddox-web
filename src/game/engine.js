@@ -8,7 +8,22 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js'
+import { CSM } from 'three/examples/jsm/csm/CSM.js'
 import { terrainH, buildTerrain, pine, mountain, rock, flowers, cloud, explorer, buildAnimal, mat, fruit, grassField, waterMaterial } from './models.js'
+
+function applyCSM(csm, object) {
+  if (!csm) return;
+  object.traverse((child) => {
+    if (child.isMesh && child.material) {
+      if (Array.isArray(child.material)) {
+        child.material.forEach(m => csm.setupMaterial(m));
+      } else {
+        csm.setupMaterial(child.material);
+      }
+    }
+  });
+}
 
 const WORLD_RADIUS = 52
 
@@ -74,6 +89,13 @@ export class Engine {
     this.bloomPass = new UnrealBloomPass(new THREE.Vector2(1,1), .35, .6, .85)
     this.bloomPass.enabled = !this.lowFX
     this.composer.addPass(this.bloomPass)
+    /* GTAO (Ambient Occlusion) - disable on low end devices */
+    this.gtaoPass = new GTAOPass(this.worldScene, this.camera, canvas.clientWidth, canvas.clientHeight)
+    this.gtaoPass.output = 0 // default
+    this.gtaoPass.enabled = !this.lowFX
+    this.gtaoPass.blendIntensity = 0.6
+    this.composer.addPass(this.gtaoPass)
+    
     /* OutputPass applies ACES tone mapping + sRGB conversion; grade runs after, in display space */
     this.composer.addPass(new OutputPass())
     this.gradePass = new ShaderPass(GradeShader)
@@ -115,15 +137,19 @@ export class Engine {
 
     /* golden-hour light rig: warm low key + cool sky fill */
     const hemi = new THREE.HemisphereLight(0xBFD8FF, 0x3E5E30, .55); s.add(hemi)
-    this.worldSun = new THREE.DirectionalLight(0xFFD9A0, 1.9)
-    this.worldSun.position.set(38, 22, 14)
-    this.worldSun.castShadow = true
-    this.worldSun.shadow.mapSize.set(this.lowFX ? 2048 : 4096, this.lowFX ? 2048 : 4096)
-    this.worldSun.shadow.bias = -0.0004
-    this.worldSun.shadow.normalBias = .02
-    const sc = this.worldSun.shadow.camera
-    sc.left=-60; sc.right=60; sc.top=60; sc.bottom=-60
-    s.add(this.worldSun)
+    
+    this.csmWorld = new CSM({
+      camera: this.camera,
+      parent: s,
+      cascades: 3,
+      maxFar: 140,
+      mode: 'practical',
+      shadowMapSize: this.lowFX ? 1024 : 2048,
+      lightDirection: new THREE.Vector3(38, 22, 14).normalize(),
+      lightIntensity: 1.9,
+      lightColor: new THREE.Color(0xFFD9A0)
+    });
+    this.csmWorld.fade = true;
     /* faint warm bounce from the west so shadow sides aren't dead */
     const bounce = new THREE.DirectionalLight(0xFFB070, .18)
     bounce.position.set(-30, 10, -20); s.add(bounce)
@@ -152,12 +178,23 @@ export class Engine {
     s.add(river)
     this.river = river
 
-    /* trees (store positions for collision) */
+    /* trees (store positions for collision) - clustered organically */
     this.treeCols = []
-    for(let i=0;i<170;i++){
+    const treeClusters = []
+    for(let i=0;i<20;i++){
+      const a = Math.random()*Math.PI*2
+      const d = 12 + Math.random()*(WORLD_RADIUS-16)
+      treeClusters.push({x: Math.cos(a)*d, z: Math.sin(a)*d})
+    }
+    for(let i=0;i<200;i++){
+      const clus = treeClusters[Math.floor(Math.random()*treeClusters.length)]
       const ang = Math.random()*Math.PI*2
-      const dist = 6 + Math.random()*(WORLD_RADIUS-6)
-      const x = Math.cos(ang)*dist, z = Math.sin(ang)*dist
+      const dist = Math.random()*12
+      const x = clus.x + Math.cos(ang)*dist
+      const z = clus.z + Math.sin(ang)*dist
+      
+      if(Math.hypot(x, z) > WORLD_RADIUS) continue
+      if(Math.hypot(x, z) < 6) continue
       if(Math.abs(x - Math.sin(z*.09)*6) < 3.2) continue       // off path
       if(x > -23.5 && x < -16.5) continue                       // off river
       if(Math.hypot(x, z-40) < 10) continue                     // spawn clearing
@@ -248,6 +285,7 @@ export class Engine {
       c.scale.setScalar(2+Math.random()*1.6)
       s.add(c); this.clouds.push(c)
     }
+  /* ════════ BATTLE/WORLD TRANSITION ════════ */
 
     /* drifting pollen motes in the sunlight */
     {
@@ -319,6 +357,8 @@ export class Engine {
 
     this.wpTargetZone = null
     this.wpUpdateTimer = 0
+
+    applyCSM(this.csmWorld, s);
   }
 
   /* ── Waypoint Methods ── */
@@ -387,14 +427,20 @@ export class Engine {
     })
     s.fog = new THREE.FogExp2(0xD8CCA0, .012)
     const hemi = new THREE.HemisphereLight(0xBFD8FF, 0x3E5E30, .7); s.add(hemi)
-    const sun = new THREE.DirectionalLight(0xFFD898, 1.9)
-    sun.position.set(-16, 14, 8); sun.castShadow = true
-    sun.shadow.mapSize.set(2048,2048)
-    sun.shadow.bias = -0.0004
-    sun.shadow.normalBias = .02
-    const sc2 = sun.shadow.camera
-    sc2.left=-25; sc2.right=25; sc2.top=25; sc2.bottom=-25
-    s.add(sun)
+    
+    this.csmBattle = new CSM({
+      camera: this.camera,
+      parent: s,
+      cascades: 3,
+      maxFar: 40,
+      mode: 'practical',
+      shadowMapSize: this.lowFX ? 1024 : 2048,
+      lightDirection: new THREE.Vector3(-16, 14, 8).normalize(),
+      lightIntensity: 1.9,
+      lightColor: new THREE.Color(0xFFD898)
+    });
+    this.csmBattle.fade = true;
+
     const bounce2 = new THREE.DirectionalLight(0xFFB070, .2)
     bounce2.position.set(14, 8, -10); s.add(bounce2)
 
@@ -456,6 +502,8 @@ export class Engine {
       m.position.set((Math.random()-.5)*14, Math.random()*4+.5, (Math.random()-.5)*9)
       s.add(m); this.motes.push(m)
     }
+    
+    applyCSM(this.csmBattle, s);
 
     this.battleP = null   // player animal model
     this.battleE = null   // enemy model
@@ -489,6 +537,10 @@ export class Engine {
     this.battleE.position.set(3.6, 0, 0)
     this.battleE.rotation.y = Math.PI
     this.battleScene.add(this.battleE)
+    
+    applyCSM(this.csmBattle, this.battleP)
+    applyCSM(this.csmBattle, this.battleE)
+    
     this.cageMesh.visible = false
     this.mode = 'battle'
     this.camOrbit = 0
@@ -500,6 +552,7 @@ export class Engine {
     this.battleP = buildAnimal(playerAnimalId, playerEvolved)
     this.battleP.position.set(-3.6, 0, 0)
     this.battleScene.add(this.battleP)
+    applyCSM(this.csmBattle, this.battleP)
   }
 
   endBattle(){
@@ -824,6 +877,8 @@ export class Engine {
 
     /* render through the post-FX chain */
     this.renderPass.scene = this.mode==='world' ? this.worldScene : this.battleScene
+    if (this.mode === 'world' && this.csmWorld) this.csmWorld.update();
+    if (this.mode === 'battle' && this.csmBattle) this.csmBattle.update();
     this.renderer.info.autoReset = false
     this.renderer.info.reset()
     this.composer.render()

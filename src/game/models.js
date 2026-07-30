@@ -2,7 +2,7 @@
 import * as THREE from 'three'
 
 export const mat = (color, rough=.95, opts={}) =>
-  new THREE.MeshStandardMaterial({ color, roughness:rough, metalness:0, flatShading:true, ...opts })
+  new THREE.MeshStandardMaterial({ color, roughness:rough, metalness:0, ...opts })
 
 /* terrain height function — shared so engine can sample ground height */
 export function terrainH(x, z){
@@ -18,22 +18,51 @@ const n2 = (x, z) => {
 const smoothNoise = (x, z) =>
   ( Math.sin(x*.31+z*.17) + Math.sin(x*.13-z*.29+2.1) + Math.sin(x*.53+z*.41+4.2)*.5 ) / 2.5
 
-/* small repeating grass-detail texture painted on a canvas */
-function grassDetailTexture(){
-  /* near-white noise so it modulates vertex colors without darkening them */
-  const c = document.createElement('canvas'); c.width = c.height = 256
-  const g = c.getContext('2d')
-  g.fillStyle = '#E9E9E9'; g.fillRect(0,0,256,256)
-  for(let i=0;i<9000;i++){
-    const l = 74 + Math.random()*26
-    g.fillStyle = `hsl(${80+Math.random()*30}, ${6+Math.random()*10}%, ${l}%)`
-    g.fillRect(Math.random()*256, Math.random()*256, 1.5, 1.5)
+let cachedTerrainTextures = null
+function getTerrainTextures(){
+  if(cachedTerrainTextures) return cachedTerrainTextures
+  const s = 256
+  const cc = document.createElement('canvas'); cc.width = cc.height = s
+  const nc = document.createElement('canvas'); nc.width = nc.height = s
+  const rc = document.createElement('canvas'); rc.width = rc.height = s
+  
+  const cctx = cc.getContext('2d'), nctx = nc.getContext('2d'), rctx = rc.getContext('2d')
+  cctx.fillStyle = '#E9E9E9'; cctx.fillRect(0,0,s,s)
+  nctx.fillStyle = '#8080FF'; nctx.fillRect(0,0,s,s)
+  rctx.fillStyle = '#DDDDDD'; rctx.fillRect(0,0,s,s)
+
+  for(let i=0;i<12000;i++){
+    const x = Math.random()*s, y = Math.random()*s, sz = 1 + Math.random()*1.5
+    // color (slight hue variation)
+    cctx.fillStyle = `hsl(${80+Math.random()*30}, ${6+Math.random()*10}%, ${74+Math.random()*26}%)`
+    cctx.fillRect(x,y,sz,sz)
+    
+    // normal (perturbing up/down/left/right slightly)
+    const nx = 128 + (Math.random()-.5)*60, ny = 128 + (Math.random()-.5)*60
+    nctx.fillStyle = `rgb(${nx}, ${ny}, 255)`
+    nctx.fillRect(x,y,sz,sz)
+    
+    // roughness (highly rough for dirt/grass)
+    const r = 200 + Math.random()*55
+    rctx.fillStyle = `rgb(${r},${r},${r})`
+    rctx.fillRect(x,y,sz,sz)
   }
-  const tex = new THREE.CanvasTexture(c)
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping
-  tex.repeat.set(48, 48)
-  tex.colorSpace = THREE.SRGBColorSpace
-  return tex
+  
+  const color = new THREE.CanvasTexture(cc)
+  color.wrapS = color.wrapT = THREE.RepeatWrapping
+  color.repeat.set(48, 48)
+  color.colorSpace = THREE.SRGBColorSpace
+  
+  const normal = new THREE.CanvasTexture(nc)
+  normal.wrapS = normal.wrapT = THREE.RepeatWrapping
+  normal.repeat.set(48, 48)
+  
+  const roughness = new THREE.CanvasTexture(rc)
+  roughness.wrapS = roughness.wrapT = THREE.RepeatWrapping
+  roughness.repeat.set(48, 48)
+  
+  cachedTerrainTextures = { color, normal, roughness }
+  return cachedTerrainTextures
 }
 
 export function buildTerrain(size=140, seg=128){
@@ -66,8 +95,15 @@ export function buildTerrain(size=140, seg=128){
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
   geo.computeVertexNormals()
+  const tex = getTerrainTextures()
   const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-    map: grassDetailTexture(), vertexColors: true, roughness: .95, metalness: 0
+    map: tex.color,
+    normalMap: tex.normal,
+    roughnessMap: tex.roughness,
+    normalScale: new THREE.Vector2(.4, .4),
+    vertexColors: true, 
+    roughness: 1, 
+    metalness: 0
   }))
   m.rotation.x = -Math.PI/2
   m.receiveShadow = true
@@ -81,11 +117,12 @@ export function pine(scale=1){
   trunk.position.y = trunkH/2; trunk.castShadow = true; g.add(trunk)
   const greens = [0x2A6E2A,0x358030,0x1E5A20,0x3A8A38]
   const col = greens[Math.floor(Math.random()*greens.length)]
+  const variedCol = new THREE.Color(col).offsetHSL(Math.random()*.06-.03, Math.random()*.15-.05, Math.random()*.1-.05)
   let y = trunkH*.8
   const tiers = 2+Math.floor(Math.random()*2)
   for(let i=0;i<tiers;i++){
     const r=(1.15-i*.3)*scale, h=(1.5-i*.2)*scale
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(r,h,6), mat(col))
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(r,h,6), mat(variedCol))
     cone.position.y = y+h/2; cone.castShadow = true; cone.receiveShadow = true
     cone.rotation.y = Math.random()*Math.PI
     g.add(cone); y += h*.55
@@ -270,6 +307,8 @@ export function grassField(points, { color=0x4E8A30, height=1, width=.8 }={}){
 
   const inst = new THREE.InstancedMesh(geo, m, points.length)
   const d = new THREE.Object3D()
+  const baseC = new THREE.Color(color)
+  const tmpC = new THREE.Color()
   points.forEach(([x,y,z], i)=>{
     d.position.set(x, y, z)
     d.rotation.y = Math.random()*Math.PI
@@ -277,8 +316,11 @@ export function grassField(points, { color=0x4E8A30, height=1, width=.8 }={}){
     d.scale.set(sc, sc*(.8+Math.random()*.5), sc)
     d.updateMatrix()
     inst.setMatrixAt(i, d.matrix)
+    tmpC.copy(baseC).offsetHSL(Math.random()*.06-.03, Math.random()*.15-.05, Math.random()*.1-.05)
+    inst.setColorAt(i, tmpC)
   })
   inst.instanceMatrix.needsUpdate = true
+  inst.instanceColor.needsUpdate = true
   inst.castShadow = false
   inst.receiveShadow = true
   return inst
