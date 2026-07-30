@@ -14,7 +14,7 @@ export function TitleScreen({ hasSave, onNewGame, onContinue, muted, onMuteToggl
       {/* drops in automatically once art exists at public/art/title_bg.jpg */}
       <div className="title-bg" style={{ backgroundImage:"url('/art/title_bg.jpg')" }} />
       <div style={{ marginBottom:'clamp(18px,3vh,30px)' }}>
-        <div className="title-logo">WILDDOX</div>
+        <img src="/logo-wilddox.png" alt="WILDDOX" className="title-logo" style={{ maxWidth: '100%', height: 'auto', maxHeight: '180px', objectFit: 'contain' }} />
         <div className="title-sub">— Shadows of the Hunt —</div>
         <div className="title-tag" style={{ marginTop: 8 }}>Find, battle, and bond with your first Wilddox in minutes.</div>
         <div style={{ width:110, height:2, background:'linear-gradient(90deg,var(--gold),transparent)', marginTop:14 }}/>

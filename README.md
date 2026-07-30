@@ -1,5 +1,7 @@
 # Wilddox: Shadows of the Hunt
 
+![Wilddox Logo](./public/logo-wilddox.png)
+
 Full 3D wildlife capture RPG — React + Three.js + Tone.js, built for Vercel.
 
 ## Features
