@@ -197,15 +197,19 @@ export function cloud(){
 /* ── ANIMATED WATER (river) ── */
 export function waterMaterial(){
   const m = new THREE.ShaderMaterial({
-    transparent: true, fog: false,
-    uniforms: {
-      uTime:    { value: 0 },
-      uDeep:    { value: new THREE.Color(0x1E5C8A) },
-      uShallow: { value: new THREE.Color(0x63B2D8) },
-      uSky:     { value: new THREE.Color(0xC8E4F4) },
-      uSunDir:  { value: new THREE.Vector3(.75,.44,.28).normalize() },
-    },
+    transparent: true, fog: true, depthTest: true, depthWrite: true,
+    uniforms: THREE.UniformsUtils.merge([
+      THREE.UniformsLib['fog'],
+      {
+        uTime:    { value: 0 },
+        uDeep:    { value: new THREE.Color(0x1E5C8A) },
+        uShallow: { value: new THREE.Color(0x63B2D8) },
+        uSky:     { value: new THREE.Color(0xC8E4F4) },
+        uSunDir:  { value: new THREE.Vector3(.75,.44,.28).normalize() },
+      }
+    ]),
     vertexShader: /* glsl */`
+      #include <fog_pars_vertex>
       uniform float uTime;
       varying vec2 vUv;
       varying vec3 vWorld;
@@ -217,8 +221,10 @@ export function waterMaterial(){
         vec4 w = modelMatrix * vec4(p, 1.);
         vWorld = w.xyz;
         gl_Position = projectionMatrix * viewMatrix * w;
+        #include <fog_vertex>
       }`,
     fragmentShader: /* glsl */`
+      #include <fog_pars_fragment>
       uniform float uTime;
       uniform vec3 uDeep, uShallow, uSky, uSunDir;
       varying vec2 vUv;
@@ -245,6 +251,7 @@ export function waterMaterial(){
         /* soft edge fade into the banks */
         float edge = smoothstep(0., .14, vUv.x) * smoothstep(1., .86, vUv.x);
         gl_FragColor = vec4(col, .92*edge + .05);
+        #include <fog_fragment>
       }`
   })
   return m
