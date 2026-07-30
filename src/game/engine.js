@@ -174,7 +174,7 @@ export class Engine {
     this.animMats.push(wMat)
     const river = new THREE.Mesh(new THREE.PlaneGeometry(6, 110, 6, 110), wMat)
     river.rotation.x = -Math.PI/2
-    river.position.set(-20, .1, 0)
+    river.position.set(-20, -0.15, 0)
     s.add(river)
     this.river = river
 

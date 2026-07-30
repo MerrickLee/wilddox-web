@@ -8,16 +8,21 @@ export const mat = (color, rough=.95, opts={}) =>
 export function terrainH(x, z){
   let h = Math.sin(x*.08)*Math.cos(z*.07)*1.4
        + Math.sin(x*.23+1.7)*Math.cos(z*.19)*0.5
-  /* River trench */
-  let trench = 0.0;
-  if(x > -26.0 && x < -14.0) {
+  /* flatten terrain near river and form a trench */
+  if(x > -30.0 && x < -10.0) {
      let dist = Math.abs(x - (-20.0));
-     if(dist < 6.0) {
-        let d = dist / 6.0;
-        trench = (1.0 - d*d) * 0.65;
+     if(dist < 10.0) {
+        let d = dist / 10.0;
+        let blend = d*d*(3.0 - 2.0*d);
+        h = h * blend; // force terrain height to 0 near the river
+        
+        if(dist < 4.5) {
+           let td = dist / 4.5;
+           h -= (1.0 - td*td) * 0.4; // dip to -0.4
+        }
      }
   }
-  return h - trench;
+  return h;
 }
 
 /* pseudo-noise for terrain color variation (deterministic, no libs) */
@@ -197,19 +202,15 @@ export function cloud(){
 /* ── ANIMATED WATER (river) ── */
 export function waterMaterial(){
   const m = new THREE.ShaderMaterial({
-    transparent: true, fog: true, depthTest: true, depthWrite: true,
-    uniforms: THREE.UniformsUtils.merge([
-      THREE.UniformsLib['fog'],
-      {
-        uTime:    { value: 0 },
-        uDeep:    { value: new THREE.Color(0x1E5C8A) },
-        uShallow: { value: new THREE.Color(0x63B2D8) },
-        uSky:     { value: new THREE.Color(0xC8E4F4) },
-        uSunDir:  { value: new THREE.Vector3(.75,.44,.28).normalize() },
-      }
-    ]),
+    transparent: true, depthTest: true, depthWrite: true,
+    uniforms: {
+      uTime:    { value: 0 },
+      uDeep:    { value: new THREE.Color(0x1E5C8A) },
+      uShallow: { value: new THREE.Color(0x63B2D8) },
+      uSky:     { value: new THREE.Color(0xC8E4F4) },
+      uSunDir:  { value: new THREE.Vector3(.75,.44,.28).normalize() },
+    },
     vertexShader: /* glsl */`
-      #include <fog_pars_vertex>
       uniform float uTime;
       varying vec2 vUv;
       varying vec3 vWorld;
@@ -221,10 +222,8 @@ export function waterMaterial(){
         vec4 w = modelMatrix * vec4(p, 1.);
         vWorld = w.xyz;
         gl_Position = projectionMatrix * viewMatrix * w;
-        #include <fog_vertex>
       }`,
     fragmentShader: /* glsl */`
-      #include <fog_pars_fragment>
       uniform float uTime;
       uniform vec3 uDeep, uShallow, uSky, uSunDir;
       varying vec2 vUv;
@@ -250,8 +249,13 @@ export function waterMaterial(){
         col += vec3(1.4, 1.15, .8) * pow(max(dot(R, V), 0.), 90.) * 1.4;
         /* soft edge fade into the banks */
         float edge = smoothstep(0., .14, vUv.x) * smoothstep(1., .86, vUv.x);
-        gl_FragColor = vec4(col, .92*edge + .05);
-        #include <fog_fragment>
+        
+        /* manual distance fog */
+        float dist = length(cameraPosition - vWorld);
+        float fogFactor = smoothstep(15.0, 55.0, dist);
+        
+        vec4 finalColor = vec4(col, .92*edge + .05);
+        gl_FragColor = mix(finalColor, vec4(uSky, 1.0), fogFactor);
       }`
   })
   return m

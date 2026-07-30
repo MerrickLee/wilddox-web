@@ -79,9 +79,13 @@ export function WorldHUD({
     {QUESTS && QUESTS[questIdx] && (
       <div style={{ position:'absolute', top: 50, left:'50%', transform:'translateX(-50%)', zIndex: 10, display:'flex', flexDirection:'column', alignItems:'center' }}>
         <button className="panel" onClick={onToggleQuestExpanded} style={{
-          padding:'6px 16px', borderRadius:20, background:'rgba(16,28,48,0.85)',
-          border:'1px solid var(--gold)', boxShadow:'0 0 12px rgba(245,196,48,0.2)',
-          display:'flex', alignItems:'center', gap:8, cursor:'pointer'
+          display:'flex', alignItems:'center', gap:8,
+          padding:'6px 16px', borderRadius:20, border:'2px solid var(--gold)',
+          background:'rgba(20,20,20,0.95)',
+          color:'var(--gold)',
+          boxShadow: '0 0 15px rgba(245, 196, 48, 0.4)',
+          animation: 'pulseGlow 2s infinite alternate',
+          cursor:'pointer', zIndex:100, transition:'all 0.2s'
         }}>
           <Icon name="quest" size={14} style={{ color:'var(--gold)' }} />
           <span style={{ fontFamily:'var(--ft)', fontWeight:700, fontSize:13 }}>{QUESTS[questIdx].title}</span>
