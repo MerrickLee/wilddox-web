@@ -6,9 +6,23 @@ class AudioManager {
     this.ready = false
     this.muted = false
     this.currentMusic = null
-    this.bgm = new Audio('/Two_Voices_at_the_Edge.mp3')
-    this.bgm.loop = true
+    this.worldPlaylist = [
+      '/Two_Voices_at_the_Edge.mp3',
+      '/Beyond_the_Pine_Canopy.mp3',
+      '/Maddy_Daddy_Go.mp3',
+      '/The_Clearings_Call.mp3'
+    ]
+    this.worldPlaylistIndex = 0
+    this.bgm = new Audio(this.worldPlaylist[0])
     this.bgm.volume = 0.4
+    
+    this.bgm.addEventListener('ended', () => {
+      if (this.currentMusic === 'world') {
+        this.worldPlaylistIndex = (this.worldPlaylistIndex + 1) % this.worldPlaylist.length
+        this.bgm.src = this.worldPlaylist[this.worldPlaylistIndex]
+        this.bgm.play().catch(()=>{})
+      }
+    })
     
     this.battleBgm = new Audio('/battle/Talons_and_Timber.mp3')
     this.battleBgm.loop = true

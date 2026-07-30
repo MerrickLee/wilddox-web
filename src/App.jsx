@@ -357,9 +357,6 @@ export default function App(){
             nb.eph='animating_defeat'
             nb.res={ ok:false, msg:`${party[0].name} fainted! Retreating...` } 
             trackEvent('battle_loss', { enemy_name: curB.enemy.name })
-            eng.onDefeat('player', () => {
-              setBat(curr => curr ? { ...curr, eph: 'result' } : null)
-            })
           } else {
             eng.onLandedHit('enemy')
             eng.onTookBigHit('player', ed / party[0].maxHp * 100)
@@ -368,6 +365,14 @@ export default function App(){
           return nb
         })
       }, ()=>{
+        const finB = batRef.current
+        if(finB && finB.pHp <= 0) {
+          eng.onDefeat('player')
+          eng.onVictory('enemy', () => {
+            setBat(curr => curr ? { ...curr, eph: 'result' } : null)
+          })
+          return
+        }
         setBat(x=>x?{ ...x, busy:false }:x)
       })
     }
@@ -410,11 +415,6 @@ export default function App(){
                 setFlags(f => ({ ...f, firstBattleWin: true }))
               }
               trackEvent('battle_win', { enemy_name: x.enemy.name })
-              eng.onDefeat('enemy')
-              AUDIO.bark('victory')
-              eng.onVictory('player', () => {
-                setBat(curr => curr ? { ...curr, eph: 'result' } : null)
-              })
             } else {
               eng.onLandedHit('player')
               eng.onTookBigHit('enemy', d / x.enemy.maxHp * 100)
@@ -426,6 +426,14 @@ export default function App(){
         }
       }, ()=>{
         const curB = batRef.current
+        if(curB && curB.eHp <= 0) {
+          eng.onDefeat('enemy')
+          AUDIO.bark('victory')
+          eng.onVictory('player', () => {
+            setBat(curr => curr ? { ...curr, eph: 'result' } : null)
+          })
+          return
+        }
         if(curB && curB.eHp > 0 && curB.pHp > 0 && curB.eph!=='result') setTimeout(enemyTurn, 250)
         else setBat(x=>x?{ ...x, busy:false }:x)
       })

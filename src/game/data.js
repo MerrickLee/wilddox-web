@@ -9,7 +9,7 @@ export const ANIMALS = {
       {name:'Dodge Roll', pp:10, mpP:10, dmg:0,  acc:100, cat:'heal', heal:8, emoji:'💚', icon:'heal'},
       {name:'Pounce',     pp:8,  mpP:8,  dmg:15, acc:85,  cat:'phys', emoji:'⚡', icon:'bolt'},
     ],
-    evo:{ name:'Crimson Fox', level:18, desc:'A majestic crimson fox with glowing markings.' }},
+    evo:{ id:'crimson_fox', name:'Crimson Fox', level:18, desc:'A majestic crimson fox with glowing markings.' }},
   raccoon: { id:'raccoon', name:'Raccoon', type:'Utility', baseHp:50, atk:9, def:8,
     desc:'Crafty and adaptable. Versatile in any situation.',
     moves:[
@@ -18,7 +18,7 @@ export const ANIMALS = {
       {name:'Trick',      pp:15, mpP:15, dmg:10, acc:90,  cat:'phys', emoji:'🌀', icon:'swirl'},
       {name:'Night Raid', pp:8,  mpP:8,  dmg:16, acc:80,  cat:'phys', emoji:'🌙', icon:'moon'},
     ],
-    evo:{ name:'Shadow Bandit', level:16, desc:'Near invisible at night.' }},
+    evo:{ id:'shadow_bandit', name:'Shadow Bandit', level:16, desc:'Near invisible at night.' }},
   wolf: { id:'wolf', name:'Young Wolf', type:'Power', baseHp:58, atk:13, def:7,
     desc:'Raw strength and fierce loyalty.',
     moves:[
@@ -27,7 +27,7 @@ export const ANIMALS = {
       {name:'Rock Smash',   pp:15, mpP:15, dmg:10, acc:100, cat:'phys', emoji:'💢', icon:'impact'},
       {name:'Feral Strike', pp:8,  mpP:8,  dmg:18, acc:78,  cat:'phys', emoji:'⚡', icon:'bolt'},
     ],
-    evo:{ name:'Alpha Wolf', level:20, desc:'The pack follows without question.' }},
+    evo:{ id:'alpha_wolf', name:'Alpha Wolf', level:20, desc:'The pack follows without question.' }},
 }
 
 export const WILD = [

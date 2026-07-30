@@ -6,8 +6,18 @@ export const mat = (color, rough=.95, opts={}) =>
 
 /* terrain height function — shared so engine can sample ground height */
 export function terrainH(x, z){
-  return Math.sin(x*.08)*Math.cos(z*.07)*1.4
+  let h = Math.sin(x*.08)*Math.cos(z*.07)*1.4
        + Math.sin(x*.23+1.7)*Math.cos(z*.19)*0.5
+  /* River trench */
+  let trench = 0.0;
+  if(x > -26.0 && x < -14.0) {
+     let dist = Math.abs(x - (-20.0));
+     if(dist < 6.0) {
+        let d = dist / 6.0;
+        trench = (1.0 - d*d) * 0.65;
+     }
+  }
+  return h - trench;
 }
 
 /* pseudo-noise for terrain color variation (deterministic, no libs) */
@@ -286,7 +296,8 @@ export function grassField(points, { color=0x4E8A30, height=1, width=.8 }={}){
   })
   m.onBeforeCompile = (shader)=>{
     shader.uniforms.uTime = { value: 0 }
-    shader.vertexShader = 'uniform float uTime;\nvarying vec2 vGuv;\n' + shader.vertexShader
+    shader.uniforms.uPlayerPos = { value: new THREE.Vector3(0,0,0) }
+    shader.vertexShader = 'uniform float uTime;\nuniform vec3 uPlayerPos;\nvarying vec2 vGuv;\n' + shader.vertexShader
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', /* glsl */`
       #include <begin_vertex>
       vGuv = uv;
@@ -294,14 +305,28 @@ export function grassField(points, { color=0x4E8A30, height=1, width=.8 }={}){
         float wx = instanceMatrix[3][0], wz = instanceMatrix[3][2];
         float sway = sin(uTime*1.7 + wx*.55 + wz*.35) + sin(uTime*3.1 + wz*.9)*.35;
         float bend = uv.y * uv.y * .16;
+        
+        vec2 wPos = vec2(wx, wz);
+        vec2 d = wPos - uPlayerPos.xz;
+        float dist = length(d);
+        if(dist < 1.4 && dist > 0.01) {
+          float push = (1.4 - dist) / 1.4;
+          push *= push; 
+          vec2 dir = d / dist;
+          transformed.x += dir.x * push * 1.2 * uv.y;
+          transformed.z += dir.y * push * 1.2 * uv.y;
+        }
+
         transformed.x += sway * bend;
         transformed.z += cos(uTime*1.3 + wx*.4) * bend * .6;
       }`)
     /* tip-lightening: fake ambient occlusion at the roots */
     shader.fragmentShader = 'varying vec2 vGuv;\n' + shader.fragmentShader
-    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', /* glsl */`
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <color_fragment>', /* glsl */`
       #include <color_fragment>
-      diffuseColor.rgb *= mix(.72, 1.18, vGuv.y);`)
+      diffuseColor.rgb *= mix(vec3(.3,.5,.2), vec3(1.), smoothstep(0., .7, vGuv.y));
+    `)
     m.userData.shader = shader
   }
 

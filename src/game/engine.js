@@ -136,7 +136,7 @@ export class Engine {
     s.fog = new THREE.FogExp2(0xBCC9D8, .0068)
 
     /* golden-hour light rig: warm low key + cool sky fill */
-    const hemi = new THREE.HemisphereLight(0xBFD8FF, 0x3E5E30, .55); s.add(hemi)
+    const hemi = new THREE.HemisphereLight(0xBFD8FF, 0x3E5E30, 1.2); s.add(hemi)
     
     this.csmWorld = new CSM({
       camera: this.camera,
@@ -146,12 +146,12 @@ export class Engine {
       mode: 'practical',
       shadowMapSize: this.lowFX ? 1024 : 2048,
       lightDirection: new THREE.Vector3(38, 22, 14).normalize(),
-      lightIntensity: 1.9,
+      lightIntensity: 2.2,
       lightColor: new THREE.Color(0xFFD9A0)
     });
     this.csmWorld.fade = true;
     /* faint warm bounce from the west so shadow sides aren't dead */
-    const bounce = new THREE.DirectionalLight(0xFFB070, .18)
+    const bounce = new THREE.DirectionalLight(0xFFB070, .5)
     bounce.position.set(-30, 10, -20); s.add(bounce)
 
     s.add(buildTerrain())
@@ -426,7 +426,7 @@ export class Engine {
       sunColor:0xFFEECC, sunSize:.998, haloSize:.9
     })
     s.fog = new THREE.FogExp2(0xD8CCA0, .012)
-    const hemi = new THREE.HemisphereLight(0xBFD8FF, 0x3E5E30, .7); s.add(hemi)
+    const hemi = new THREE.HemisphereLight(0xBFD8FF, 0x3E5E30, 1.2); s.add(hemi)
     
     this.csmBattle = new CSM({
       camera: this.camera,
@@ -436,12 +436,12 @@ export class Engine {
       mode: 'practical',
       shadowMapSize: this.lowFX ? 1024 : 2048,
       lightDirection: new THREE.Vector3(-16, 14, 8).normalize(),
-      lightIntensity: 1.9,
+      lightIntensity: 2.2,
       lightColor: new THREE.Color(0xFFD898)
     });
     this.csmBattle.fade = true;
 
-    const bounce2 = new THREE.DirectionalLight(0xFFB070, .2)
+    const bounce2 = new THREE.DirectionalLight(0xFFB070, .5)
     bounce2.position.set(14, 8, -10); s.add(bounce2)
 
     /* arena ground */
@@ -873,7 +873,15 @@ export class Engine {
     else this._tickBattle(dt, t)
 
     /* animated materials (water ripple, grass wind) */
-    for(const m of this.animMats){ if(m.userData.shader) m.userData.shader.uniforms.uTime.value = t; if(m.uniforms) m.uniforms.uTime.value = t }
+    for(const m of this.animMats){
+      if(m.userData.shader) {
+        m.userData.shader.uniforms.uTime.value = t
+        if(m.userData.shader.uniforms.uPlayerPos && this.player) {
+          m.userData.shader.uniforms.uPlayerPos.value.copy(this.player.position)
+        }
+      }
+      if(m.uniforms) m.uniforms.uTime.value = t
+    }
 
     /* render through the post-FX chain */
     this.renderPass.scene = this.mode==='world' ? this.worldScene : this.battleScene
@@ -902,6 +910,8 @@ export class Engine {
     if(len>1){ ix/=len; iz/=len }
     const moving = len > .12 && !this.paused
 
+    if(this.encounterCooldown > 0) this.encounterCooldown -= dt
+
     if(moving){
       const speed = 7
       const nx = this.player.position.x + ix*speed*dt
@@ -927,7 +937,11 @@ export class Engine {
       const prevPhase = this.walkPhase
       this.walkPhase += dt*9
       if (Math.floor(this.walkPhase / Math.PI) > Math.floor(prevPhase / Math.PI)) {
-         if(window.AUDIO) window.AUDIO.step()
+         if(fx > -23 && fx < -17) {
+            this._splash(fx, fz)
+         } else {
+            if(window.AUDIO) window.AUDIO.step()
+         }
       }
       const { legs, arms, upperBody } = this.player.userData
       legs.forEach((l,i)=>{ 
@@ -948,9 +962,10 @@ export class Engine {
         upperBody.rotation.x = sideSway
       }
 
-      /* encounter check inside grass zones */
-      if(this.encounterCooldown > 0) this.encounterCooldown -= dt
-      else {
+      /* encounter cooldown decrements whether moving or not */
+      if(this.encounterCooldown > 0) {
+        // Cooldown handled above
+      } else {
         for(const z of this.grassZones){
           if(Math.hypot(fx-z.x, fz-z.z) < z.r){
             this.grassMeter += dt
@@ -995,6 +1010,23 @@ export class Engine {
       fr.position.set(x, terrainH(x,z)+.1, z)
       this.worldScene.add(fr)
       this.fruits.push(fr)
+    }
+
+    /* splashes update */
+    if(this.splashes) {
+      for(let i=this.splashes.length-1; i>=0; i--){
+        const p = this.splashes[i]
+        p.position.x += p.userData.vx
+        p.position.y += p.userData.vy
+        p.position.z += p.userData.vz
+        p.userData.vy -= .01
+        p.userData.life -= dt * 2.5
+        p.scale.setScalar(p.userData.life)
+        if(p.userData.life <= 0){
+          this.worldScene.remove(p)
+          this.splashes.splice(i, 1)
+        }
+      }
     }
 
     /* smooth facing */
@@ -1180,6 +1212,22 @@ export class Engine {
       this.shake -= dt*2
       this.camera.position.x += (Math.random()-.5)*this.shake*.5
       this.camera.position.y += (Math.random()-.5)*this.shake*.5
+    }
+  }
+
+  _splash(x, z){
+    if(window.AUDIO) window.AUDIO.step()
+    if(!this.splashes) { 
+      this.splashes = []
+      this.splashGeo = new THREE.BoxGeometry(.15,.15,.15)
+      this.splashMat = new THREE.MeshBasicMaterial({color:0xFFFFFF, transparent:true, opacity:.7}) 
+    }
+    for(let i=0; i<4; i++){
+      const m = new THREE.Mesh(this.splashGeo, this.splashMat)
+      m.position.set(x + (Math.random()-.5)*.8, .1, z + (Math.random()-.5)*.8)
+      m.userData = { vx: (Math.random()-.5)*.06, vy: .1+Math.random()*.12, vz: (Math.random()-.5)*.06, life: 1 }
+      this.worldScene.add(m)
+      this.splashes.push(m)
     }
   }
 }
