@@ -36,7 +36,7 @@ export function BattleScreen({ bat, lead, party, cages, doMove, doBait, doThrow,
 
     {/* ── INTRO CHOICES ── */}
     {bat.eph === 'intro' && (
-      <div className="bat-moves" style={{ position: 'relative' }}>
+      <div className="bat-moves">
         {flags?.tutorialStep === 2 && <div className="tut-pointer fade-in" style={{position:'absolute', top:-30, color:'var(--gold)', fontWeight:700, fontSize:14}}>↑ Select Battle</div>}
         <button className="mv" onClick={() => setBat(b => ({ ...b, eph:'battle' }))} style={{ borderColor: flags?.tutorialStep === 2 ? 'var(--gold)' : '' }}>
           <div className="mv-name"><Icon name="sword" size={13} /> Battle</div></button>
@@ -69,7 +69,7 @@ export function BattleScreen({ bat, lead, party, cages, doMove, doBait, doThrow,
 
     {/* ── MOVES ── */}
     {bat.eph === 'battle' && (
-      <div className="bat-moves" style={{ position: 'relative' }}>
+      <div className="bat-moves">
         {flags?.tutorialStep === 2 && <div className="tut-pointer fade-in" style={{position:'absolute', top:-30, color:'var(--gold)', fontWeight:700, fontSize:14}}>↑ Use an attack to weaken it!</div>}
         {lead.moves.map((m, i) => (
           <button key={m.name} className="mv" disabled={bat.busy || m.pp <= 0} onClick={() => doMove(m, i)} style={{ borderColor: (flags?.tutorialStep === 2 && i===0) ? 'var(--gold)' : '' }}>
